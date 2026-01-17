@@ -17,6 +17,10 @@ dotenv.config();
 
 const prisma = new PrismaClient();
 const app = express();
+import path from "path";
+
+app.use("/uploads", express.static(path.resolve("uploads")));
+
 
 app.use(
   cors({
