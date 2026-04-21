@@ -285,9 +285,6 @@ router.post("/printed-decal", (req, res) => {
     const hIn = parseFloat(height);
     const qtyNum = parseInt(qty) || 1;
     const decalNum = nextDecalNumber();
-    const imgScale = parseFloat(imageScale) || 1;
-    const imgPosX = parseFloat(imagePosX) || 0;
-    const imgPosY = parseFloat(imagePosY) || 0;
     const prevW = parseFloat(previewWidth) || 360;
     const prevH = parseFloat(previewHeight) || 360;
 
@@ -301,14 +298,12 @@ router.post("/printed-decal", (req, res) => {
     const totalW = MATERIAL_WIDTH;
     const totalH = rows * boxH;
 
-    // Parse base64 image data
+    // Parse base64 image data (canvas snapshot PNG)
     let imgBuffer = null;
-    let imgExt = "png";
     if (imageData) {
-      const matches = imageData.match(/^data:image\/(\w+);base64,(.+)$/);
+      const matches = imageData.match(/^data:image\/\w+;base64,(.+)$/);
       if (matches) {
-        imgExt = matches[1] === "jpeg" ? "jpg" : matches[1];
-        imgBuffer = Buffer.from(matches[2], "base64");
+        imgBuffer = Buffer.from(matches[1], "base64");
       }
     }
 
@@ -338,58 +333,56 @@ router.post("/printed-decal", (req, res) => {
       const shapeX = boxX + 0.5;
       const shapeY = boxY + 0.5;
 
-      // Draw background color inside shape (if not transparent)
-      if (backgroundColor && backgroundColor !== "transparent") {
-        pdfDoc.save();
-        if (shape === "circle") {
-          const cx = (shapeX + wIn / 2) * PT;
-          const cy = (shapeY + hIn / 2) * PT;
-          const r = Math.min(wIn, hIn) / 2 * PT;
-          pdfDoc.circle(cx, cy, r);
-        } else {
-          const rr = shape === "rectangle" ? 0 : 12;
-          pdfDoc.roundedRect(shapeX * PT, shapeY * PT, wIn * PT, hIn * PT, rr);
-        }
-        pdfDoc.fillColor(backgroundColor);
-        pdfDoc.fill();
-        pdfDoc.restore();
-      }
-
-      // Draw image inside shape (clipped)
+      // Draw canvas snapshot (includes background color + image already composited)
+      // The snapshot is the full 400x400 preview; the sticker occupies maskWidth x maskHeight centered in it
       if (imgBuffer) {
         pdfDoc.save();
-
-        // Create clip path from shape
+        // Clip to sticker shape
         if (shape === "circle") {
           const cx = (shapeX + wIn / 2) * PT;
           const cy = (shapeY + hIn / 2) * PT;
           const r = Math.min(wIn, hIn) / 2 * PT;
           pdfDoc.circle(cx, cy, r);
         } else {
-          const rr = shape === "rectangle" ? 0 : 12;
-          pdfDoc.roundedRect(shapeX * PT, shapeY * PT, wIn * PT, hIn * PT, rr);
+          const rrPt = shape === "rectangle" ? 0 : (12 / prevW) * wIn * PT;
+          pdfDoc.roundedRect(shapeX * PT, shapeY * PT, wIn * PT, hIn * PT, rrPt);
         }
         pdfDoc.clip();
-
-        // Calculate image placement
-        // The preview uses backgroundSize: scale*100% and backgroundPosition: posX, posY
-        // The image fills the shape at scale, then is offset by posX/posY
-        // Convert preview coordinates to PDF coordinates
-        const pxToIn = wIn / prevW; // preview pixels to inches ratio
-        const imgW = wIn * imgScale; // image width in inches at current scale
-        const imgH = hIn * imgScale;
-        const imgX = shapeX + (imgPosX * pxToIn);
-        const imgY = shapeY + (imgPosY * pxToIn);
-
         try {
+          // The snapshot is 400x400 (or prevW x prevH), the sticker is centered inside it.
+          // We place the snapshot so the sticker area aligns with shapeX/shapeY in PDF space.
+          const previewFullW = 400;
+          const previewFullH = 400;
+          const stickerOffsetX = (previewFullW - prevW) / 2; // px offset within snapshot
+          const stickerOffsetY = (previewFullH - prevH) / 2;
+          const pxToIn = wIn / prevW;
+          const imgOutW = previewFullW * pxToIn;
+          const imgOutH = previewFullH * pxToIn;
+          const imgX = shapeX - stickerOffsetX * pxToIn;
+          const imgY = shapeY - stickerOffsetY * pxToIn;
           pdfDoc.image(imgBuffer, imgX * PT, imgY * PT, {
-            width: imgW * PT,
-            height: imgH * PT,
+            width: imgOutW * PT,
+            height: imgOutH * PT,
           });
         } catch (e) {
-          console.error("Image embed error:", e.message);
+          console.error("Snapshot embed error:", e.message);
         }
-
+        pdfDoc.restore();
+      } else if (backgroundColor && backgroundColor !== "transparent") {
+        // No snapshot: just fill background color
+        const cssToHex = { white: "#ffffff", black: "#000000", red: "#ff0000", blue: "#0000ff", yellow: "#ffff00", green: "#008000", orange: "#ff7f00", purple: "#800080", pink: "#ffc0cb" };
+        const hexColor = cssToHex[backgroundColor] || backgroundColor;
+        pdfDoc.save();
+        if (shape === "circle") {
+          const cx = (shapeX + wIn / 2) * PT;
+          const cy = (shapeY + hIn / 2) * PT;
+          const r = Math.min(wIn, hIn) / 2 * PT;
+          pdfDoc.circle(cx, cy, r);
+        } else {
+          const rrPt = shape === "rectangle" ? 0 : (12 / prevW) * wIn * PT;
+          pdfDoc.roundedRect(shapeX * PT, shapeY * PT, wIn * PT, hIn * PT, rrPt);
+        }
+        pdfDoc.fillColor(hexColor).fill();
         pdfDoc.restore();
       }
 

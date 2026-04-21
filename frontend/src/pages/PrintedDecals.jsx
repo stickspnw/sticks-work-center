@@ -281,12 +281,15 @@ export default function PrintedDecals() {
         <button
           onClick={async () => {
             try {
+              let snapshotData = null;
+              if (previewRef.current) {
+                const h2c = await import('html2canvas').then(m => m.default || m);
+                const canvas = await h2c(previewRef.current, { backgroundColor: null, scale: 2, useCORS: true, logging: false });
+                snapshotData = canvas.toDataURL('image/png');
+              }
               await api.generatePrintedDecalFile({
-                width, height, shape, backgroundColor, colorName: backgroundColor === "transparent" ? "Transparent" : backgroundColor, qty,
-                imageData: previewUrl || null,
-                imageScale: scale,
-                imagePosX: positionX,
-                imagePosY: positionY,
+                width, height, shape, backgroundColor, colorName: backgroundColor === 'transparent' ? 'Transparent' : backgroundColor, qty,
+                imageData: snapshotData,
                 previewWidth: maskWidth,
                 previewHeight: maskHeight,
               });
@@ -301,8 +304,9 @@ export default function PrintedDecals() {
             try {
               let previewImage = null;
               if (previewRef.current) {
-                const canvas = await import('html2canvas').then(m => m.default || m).then(h2c => h2c(previewRef.current, { backgroundColor: '#333333', scale: 2 })).catch(() => null);
-                if (canvas) previewImage = canvas.toDataURL('image/png');
+                const h2c = await import('html2canvas').then(m => m.default || m);
+                const canvas = await h2c(previewRef.current, { backgroundColor: '#333333', scale: 2, useCORS: true, logging: false });
+                previewImage = canvas.toDataURL('image/png');
               }
               await api.generateQuote({
                 type: 'printed-decal',

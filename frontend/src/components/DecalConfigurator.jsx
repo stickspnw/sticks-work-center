@@ -331,8 +331,11 @@ const DecalConfigurator = () => {
               // Capture preview as image using html2canvas-style approach
               let previewImage = null;
               if (previewRef.current) {
-                const canvas = await import('html2canvas').then(m => m.default || m).then(h2c => h2c(previewRef.current, { backgroundColor: '#333333', scale: 2 })).catch(() => null);
-                if (canvas) previewImage = canvas.toDataURL('image/png');
+                try {
+                  const h2c = await import('html2canvas').then(m => m.default || m);
+                  const canvas = await h2c(previewRef.current, { backgroundColor: '#333333', scale: 2, useCORS: true, logging: false });
+                  previewImage = canvas.toDataURL('image/png');
+                } catch {}
               }
               await api.generateQuote({
                 type: 'cut-vinyl',
