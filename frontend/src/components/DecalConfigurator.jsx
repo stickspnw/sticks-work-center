@@ -1,6 +1,17 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { api } from '../api.js';
 
+const FONT_LIST = [
+  "Impact", "Stencil", "Arial Black", "Felix Titling", "Onyx", "Playbill",
+  "Old English Text MT", "Rage Italic", "Matura MT Script Capitals", "Mistral",
+  "Forte", "Freestyle Script", "Brush Script MT", "Vladimir Script", "Curlz MT",
+  "Jokerman", "Niagara Engraved", "Niagara Solid", "Cooper Black",
+  "Gill Sans Ultra Bold", "Rockwell Extra Bold", "Showcard Gothic", "Magneto",
+  "Ravie", "Papyrus", "Goudy Old Style", "Copperplate Gothic", "Engravers MT",
+  "OCR A Extended", "Century Gothic", "Arial", "Helvetica", "Times New Roman",
+  "Courier New", "Georgia", "Verdana", "Trebuchet MS", "Lucida Console", "Futura"
+];
+
 const DecalConfigurator = () => {
   const [text, setText] = useState('YOUR TEXT');
   const [height, setHeight] = useState(2);
@@ -12,7 +23,7 @@ const DecalConfigurator = () => {
   const [font, setFont] = useState('Impact');
   const [isBold, setIsBold] = useState(true);
   const [isItalic, setIsItalic] = useState(false);
-  const [charSpacing, setCharSpacing] = useState(0);
+  const [charSpacing, setCharSpacing] = useState(0); // percent (0-200)
   const previewRef = useRef(null);
 
   // Vinyl colors from database
@@ -65,7 +76,8 @@ const DecalConfigurator = () => {
     const ctx = canvas.getContext('2d');
     ctx.font = `${isBold ? 'bold ' : ''}${isItalic ? 'italic ' : ''}${baseFontSize}px ${font}`;
     const metrics = ctx.measureText(text);
-    const spacingTotal = text.length > 1 ? (text.length - 1) * charSpacing : 0;
+    const spacingPx = (charSpacing / 100) * baseFontSize; // percent of font size
+    const spacingTotal = text.length > 1 ? (text.length - 1) * spacingPx : 0;
     setMeasuredWidth(metrics.width + spacingTotal);
   }, [text, font, isBold, isItalic, charSpacing, baseFontSize]);
 
@@ -121,7 +133,7 @@ const DecalConfigurator = () => {
             fontWeight: isBold ? 'bold' : 'normal',
             fontStyle: isItalic ? 'italic' : 'normal',
             fontFamily: font,
-            letterSpacing: `${charSpacing * scale}px`,
+            letterSpacing: `${(charSpacing / 100) * baseFontSize * scale}px`,
             zIndex: 1,
             WebkitTextStroke: `${offsetStroke}px ${offsetColor}`,
             textStroke: `${offsetStroke}px ${offsetColor}`,
@@ -138,7 +150,7 @@ const DecalConfigurator = () => {
           fontWeight: isBold ? 'bold' : 'normal',
           fontStyle: isItalic ? 'italic' : 'normal',
           fontFamily: font,
-          letterSpacing: `${charSpacing * scale}px`,
+          letterSpacing: `${(charSpacing / 100) * baseFontSize * scale}px`,
           zIndex: 2,
           whiteSpace: 'nowrap',
           transform: 'translate(-50%, -50%)',
@@ -198,47 +210,19 @@ const DecalConfigurator = () => {
 
         <div>
           <label>Font:</label>
-          <select value={font} onChange={(e) => setFont(e.target.value)} style={inputStyle}>
-            <option value="Impact">Impact</option>
-            <option value="Stencil">Stencil</option>
-            <option value="Arial Black">Arial Black</option>
-            <option value="Felix Titling">Felix Titling</option>
-            <option value="Onyx">Onyx</option>
-            <option value="Playbill">Playbill</option>
-            <option value="Old English Text MT">Old English Text MT</option>
-            <option value="Rage Italic">Rage Italic</option>
-            <option value="Matura MT Script Capitals">Matura MT Script Capitals</option>
-            <option value="Mistral">Mistral</option>
-            <option value="Forte">Forte</option>
-            <option value="Freestyle Script">Freestyle Script</option>
-            <option value="Brush Script MT">Brush Script MT</option>
-            <option value="Vladimir Script">Vladimir Script</option>
-            <option value="Curlz MT">Curlz MT</option>
-            <option value="Jokerman">Jokerman</option>
-            <option value="Niagara Engraved">Niagara Engraved</option>
-            <option value="Niagara Solid">Niagara Solid</option>
-            <option value="Cooper Black">Cooper Black</option>
-            <option value="Gill Sans Ultra Bold">Gill Sans Ultra Bold</option>
-            <option value="Rockwell Extra Bold">Rockwell Extra Bold</option>
-            <option value="Showcard Gothic">Showcard Gothic</option>
-            <option value="Magneto">Magneto</option>
-            <option value="Ravie">Ravie</option>
-            <option value="Papyrus">Papyrus</option>
-            <option value="Goudy Old Style">Goudy Old Style</option>
-            <option value="Copperplate Gothic">Copperplate Gothic</option>
-            <option value="Engravers MT">Engravers MT</option>
-            <option value="OCR A Extended">OCR A Extended</option>
-            <option value="Century Gothic">Century Gothic</option>
-            <option value="Arial">Arial</option>
-            <option value="Helvetica">Helvetica</option>
-            <option value="Times New Roman">Times New Roman</option>
-            <option value="Courier New">Courier New</option>
-            <option value="Georgia">Georgia</option>
-            <option value="Verdana">Verdana</option>
-            <option value="Trebuchet MS">Trebuchet MS</option>
-            <option value="Lucida Console">Lucida Console</option>
-            <option value="Futura">Futura</option>
-          </select>
+          <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+            <button type="button" onClick={() => {
+              const idx = FONT_LIST.indexOf(font);
+              if (idx > 0) setFont(FONT_LIST[idx - 1]);
+            }} style={btnStyle}>&#9664;</button>
+            <select value={font} onChange={(e) => setFont(e.target.value)} style={{...inputStyle, flex: 1, margin: 0}}>
+              {FONT_LIST.map(f => <option key={f} value={f}>{f}</option>)}
+            </select>
+            <button type="button" onClick={() => {
+              const idx = FONT_LIST.indexOf(font);
+              if (idx < FONT_LIST.length - 1) setFont(FONT_LIST[idx + 1]);
+            }} style={btnStyle}>&#9654;</button>
+          </div>
         </div>
 
         <div style={{ gridColumn: '1 / -1' }}>
@@ -246,14 +230,14 @@ const DecalConfigurator = () => {
           <input
             type="range"
             min="0"
-            max="20"
-            step="1"
+            max="200"
+            step="5"
             value={charSpacing}
             onChange={(e) => setCharSpacing(parseInt(e.target.value))}
             style={{ width: '100%' }}
           />
           <div style={{ textAlign: 'center', fontSize: '12px', color: '#666' }}>
-            {charSpacing}px spacing
+            {charSpacing}% spacing
           </div>
         </div>
 

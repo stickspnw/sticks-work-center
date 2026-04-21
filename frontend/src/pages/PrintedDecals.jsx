@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { api } from "../api.js";
 
 export default function PrintedDecals() {
+  const [logoUrl, setLogoUrl] = useState("");
   const [shape, setShape] = useState("rectangle");
   const [file, setFile] = useState(null);
   const [previewUrl, setPreviewUrl] = useState("");
@@ -20,6 +21,19 @@ export default function PrintedDecals() {
   const [startPosX, setStartPosX] = useState(0);
   const [startPosY, setStartPosY] = useState(0);
   const previewRef = useRef(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const b = await api.brandingGet();
+        if (b && typeof b === "object") {
+          const rawLogo = b.logoUrl || b.logoPath || b.logo_path || "";
+          const fullLogo = rawLogo && rawLogo.startsWith("/") ? `${window.location.origin}${rawLogo}` : rawLogo;
+          setLogoUrl(fullLogo);
+        }
+      } catch {}
+    })();
+  }, []);
 
   // Fetch pricing from API
   const [pricePerSqInch, setPricePerSqInch] = useState(0.60);
@@ -106,6 +120,13 @@ export default function PrintedDecals() {
 
   return (
     <div style={{ padding: "20px", maxWidth: "720px", margin: "0 auto", background: "#fff", borderRadius: "10px", color: "#000" }}>
+      {/* Logo */}
+      {logoUrl && (
+        <div style={{ textAlign: 'center', marginBottom: '10px' }}>
+          <img src={logoUrl} alt="Logo" style={{ height: 80, maxWidth: 400, objectFit: 'contain', borderRadius: 12 }} />
+        </div>
+      )}
+
       {/* Navigation Bar */}
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', marginBottom: '20px', position: 'relative' }}>
         {/* Login - small, on the left */}

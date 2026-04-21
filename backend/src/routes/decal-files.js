@@ -85,11 +85,16 @@ function loadFont(fontName, isBold, isItalic) {
   const fileName = getFontFile(fontName, isBold, isItalic);
   const filePath = path.join(FONT_DIR, fileName);
   try {
-    return opentype.parse(fs.readFileSync(filePath));
-  } catch {
+    const buf = fs.readFileSync(filePath);
+    return opentype.parse(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength));
+  } catch (e) {
     // Fallback to Arial
-    const fallback = path.join(FONT_DIR, "arial.ttf");
-    return opentype.parse(fs.readFileSync(fallback));
+    try {
+      const buf = fs.readFileSync(path.join(FONT_DIR, "arial.ttf"));
+      return opentype.parse(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength));
+    } catch (e2) {
+      throw new Error("Failed to load font: " + e.message + " / " + e2.message);
+    }
   }
 }
 
@@ -120,7 +125,9 @@ router.post("/cut-vinyl", (req, res) => {
     const hIn = parseFloat(height);
     const qtyNum = parseInt(qty) || 1;
     const offsetIn = hasOffset ? parseFloat(offsetSize || 0) : 0;
-    const charSpacingPx = parseFloat(charSpacing) || 0;
+    const charSpacingPercent = parseFloat(charSpacing) || 0;
+    // Convert percent to PDF points: (percent/100) * fontSize
+    const charSpacingPt = (charSpacingPercent / 100) * (hIn * PT);
     const decalNum = nextDecalNumber();
 
     // Load font and convert text to outlines
@@ -128,7 +135,7 @@ router.post("/cut-vinyl", (req, res) => {
     const fontSize = hIn * PT; // font size in points
 
     // Measure text width
-    const textWidthPt = measureText(otFont, text, fontSize, charSpacingPx);
+    const textWidthPt = measureText(otFont, text, fontSize, charSpacingPt);
     const textWidthIn = textWidthPt / PT;
 
     // Determine which layer
@@ -220,7 +227,7 @@ router.post("/cut-vinyl", (req, res) => {
         // This creates a single merged outline (no internal cuts)
         const textX = (graphicX + offsetIn) * PT;
         const textY = (graphicY + offsetIn + hIn) * PT; // baseline
-        const svgPath = textToPathData(otFont, text, fontSize, textX, textY, charSpacingPx);
+        const svgPath = textToPathData(otFont, text, fontSize, textX, textY, charSpacingPt);
 
         pdfDoc.save();
         pdfDoc.lineWidth(Math.max(STROKE_WIDTH, offsetIn * PT * 2));
@@ -241,7 +248,7 @@ router.post("/cut-vinyl", (req, res) => {
         // Text layer: outlines only, no fill, 0.01" stroke
         const textX = graphicX * PT;
         const textY = (graphicY + hIn) * PT; // baseline
-        const svgPath = textToPathData(otFont, text, fontSize, textX, textY, charSpacingPx);
+        const svgPath = textToPathData(otFont, text, fontSize, textX, textY, charSpacingPt);
 
         pdfDoc.save();
         pdfDoc.lineWidth(STROKE_WIDTH);
@@ -440,15 +447,14 @@ router.post("/quote", async (req, res) => {
 
     const decalNum = decalNumber || nextDecalNumber();
 
-    // Try to load branding logo
+    // Try to load branding logo via req.prisma (with timeout to avoid hanging)
     let logoBuffer = null;
     let companyName = "";
     try {
-      const { PrismaClient } = await import("@prisma/client");
-      const prisma = new PrismaClient();
-      const rows = await prisma.setting.findMany({
-        where: { key: { in: ["company_name", "logo_path"] } },
-      });
+      const prisma = req.prisma;
+      const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 3000));
+      const query = prisma.setting.findMany({ where: { key: { in: ["company_name", "logo_path"] } } });
+      const rows = await Promise.race([query, timeout]);
       const map = Object.fromEntries(rows.map((r) => [r.key, r.value]));
       companyName = map.company_name || "";
       if (map.logo_path) {
@@ -457,7 +463,6 @@ router.post("/quote", async (req, res) => {
           logoBuffer = fs.readFileSync(logoPath);
         }
       }
-      await prisma.$disconnect();
     } catch {}
 
     // Parse preview image
@@ -484,66 +489,55 @@ router.post("/quote", async (req, res) => {
       res.send(pdfBuffer);
     });
 
-    const pageW = 612; // letter width
-    let y = 50;
+    const pageW = 612;
+    const pageH = 792;
+    const margin = 45;
+    const opts = { lineBreak: false }; // prevent PDFKit from auto-flowing to new pages
 
-    // --- HEADER ---
-    // Logo
+    let y = margin;
+
+    // --- HEADER: logo left, company name + QUOTE right ---
     if (logoBuffer) {
       try {
-        pdfDoc.image(logoBuffer, 50, y, { height: 60, width: 200 });
+        pdfDoc.image(logoBuffer, margin, y, { fit: [160, 55] });
       } catch {}
     }
-    // Company name right of logo
+    const hdrX = logoBuffer ? 215 : margin;
+    pdfDoc.fontSize(22).font("Helvetica-Bold").fillColor("#1a1a1a");
+    pdfDoc.text("QUOTE", hdrX, y, opts);
+    pdfDoc.fontSize(11).font("Helvetica").fillColor("#666666");
+    pdfDoc.text(`DECAL #${decalNum}`, hdrX, y + 26, opts);
     if (companyName) {
-      pdfDoc.fontSize(18).font("Helvetica-Bold").fillColor("#333333");
-      pdfDoc.text(companyName, logoBuffer ? 260 : 50, y + 10, { width: 300 });
+      pdfDoc.fontSize(10).fillColor("#444444");
+      pdfDoc.text(companyName, hdrX, y + 42, opts);
     }
+    const today = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+    pdfDoc.fontSize(9).fillColor("#999999");
+    pdfDoc.text(`Date: ${today}`, hdrX, y + 56, opts);
+
     y += 70;
 
-    // Divider line
-    pdfDoc.moveTo(50, y).lineTo(pageW - 50, y).strokeColor("#cccccc").lineWidth(1).stroke();
-    y += 15;
-
-    // --- QUOTE TITLE ---
-    pdfDoc.fontSize(24).font("Helvetica-Bold").fillColor("#1a1a1a");
-    pdfDoc.text("QUOTE", 50, y);
-    pdfDoc.fontSize(14).font("Helvetica").fillColor("#666666");
-    pdfDoc.text(`DECAL #${decalNum}`, 50, y + 28);
-    y += 55;
-
-    // Date
-    const today = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
-    pdfDoc.fontSize(10).fillColor("#999999");
-    pdfDoc.text(`Date: ${today}`, 50, y);
-    y += 25;
-
-    // --- PREVIEW IMAGE ---
-    if (previewBuffer) {
-      const previewMaxW = 250;
-      const previewMaxH = 180;
-      try {
-        pdfDoc.image(previewBuffer, 50, y, { width: previewMaxW, height: previewMaxH, fit: "contain" });
-      } catch {}
-      y += previewMaxH + 15;
-    }
-
     // Divider
-    pdfDoc.moveTo(50, y).lineTo(pageW - 50, y).strokeColor("#cccccc").lineWidth(0.5).stroke();
-    y += 15;
+    pdfDoc.moveTo(margin, y).lineTo(pageW - margin, y).strokeColor("#cccccc").lineWidth(1).stroke();
+    y += 12;
 
-    // --- SPECS TABLE ---
-    const labelX = 50;
-    const valueX = 220;
-    const rowH = 22;
+    // --- TWO COLUMN LAYOUT ---
+    // Left col: specs table  |  Right col: preview image
+    const leftColX = margin;
+    const leftColW = 310;
+    const rightColX = leftColX + leftColW + 20;
+    const rightColW = pageW - rightColX - margin;
+    const rowH = 18;
 
     function specRow(label, value) {
-      pdfDoc.fontSize(11).font("Helvetica").fillColor("#555555");
-      pdfDoc.text(label, labelX, y, { width: 160 });
-      pdfDoc.font("Helvetica-Bold").fillColor("#1a1a1a");
-      pdfDoc.text(String(value), valueX, y, { width: 300 });
+      pdfDoc.fontSize(9).font("Helvetica").fillColor("#777777");
+      pdfDoc.text(label, leftColX, y, { ...opts, width: 130 });
+      pdfDoc.font("Helvetica-Bold").fillColor("#1a1a1a").fontSize(9);
+      pdfDoc.text(String(value), leftColX + 135, y, { ...opts, width: leftColW - 135 });
       y += rowH;
     }
+
+    const specsStartY = y;
 
     if (type === "cut-vinyl") {
       specRow("Type", "Cut Vinyl");
@@ -552,7 +546,7 @@ router.post("/quote", async (req, res) => {
       specRow("Text Height", `${height}"`);
       specRow("Estimated Width", `${estimatedWidth}"`);
       specRow("Color", colorName || "—");
-      specRow("Character Spacing", `${charSpacing}px`);
+      specRow("Character Spacing", `${charSpacing}%`);
       if (hasOffset) {
         specRow("Offset Background", "Yes");
         specRow("Offset Color", offsetColorName || "—");
@@ -561,9 +555,7 @@ router.post("/quote", async (req, res) => {
       specRow("Quantity", qty);
       specRow("Vinyl Area", `${area} sq in`);
       specRow("Transfer Tape", `$${(transferTapeCost || 0).toFixed(2)}/unit`);
-      if (hasOffset) {
-        specRow("Offset Cost", `$${(offsetCost || 0).toFixed(2)}/unit`);
-      }
+      if (hasOffset) specRow("Offset Cost", `$${(offsetCost || 0).toFixed(2)}/unit`);
       specRow("Unit Price", `$${unitPrice}`);
     } else {
       specRow("Type", "Printed Decal");
@@ -575,21 +567,33 @@ router.post("/quote", async (req, res) => {
       specRow("Unit Price", `$${unitPrice}`);
     }
 
+    // Preview image in right column, aligned to specs start
+    if (previewBuffer) {
+      try {
+        pdfDoc.image(previewBuffer, rightColX, specsStartY, { fit: [rightColW, 180] });
+      } catch (e) {
+        console.error("Preview image error:", e.message);
+      }
+    }
+
     y += 10;
 
-    // Divider
-    pdfDoc.moveTo(50, y).lineTo(pageW - 50, y).strokeColor("#cccccc").lineWidth(0.5).stroke();
-    y += 15;
+    // Divider before total
+    pdfDoc.moveTo(margin, y).lineTo(pageW - margin, y).strokeColor("#cccccc").lineWidth(0.5).stroke();
+    y += 12;
 
     // --- TOTAL ---
-    pdfDoc.fontSize(18).font("Helvetica-Bold").fillColor("#1a1a1a");
-    pdfDoc.text("Total:", labelX, y);
-    pdfDoc.text(`$${totalPrice}`, valueX, y);
-    y += 30;
+    pdfDoc.rect(margin, y, pageW - margin * 2, 36).fill("#f0f7ff");
+    pdfDoc.fontSize(14).font("Helvetica-Bold").fillColor("#1a1a1a");
+    pdfDoc.text("TOTAL:", margin + 10, y + 11, opts);
+    pdfDoc.text(`$${totalPrice}`, margin + 110, y + 11, opts);
+    y += 48;
 
-    // Footer note
-    pdfDoc.fontSize(9).font("Helvetica").fillColor("#999999");
-    pdfDoc.text("This is a quote and does not constitute a binding contract. Prices subject to change.", 50, y, { width: pageW - 100, align: "center" });
+    // Footer
+    pdfDoc.moveTo(margin, y).lineTo(pageW - margin, y).strokeColor("#eeeeee").lineWidth(0.5).stroke();
+    y += 8;
+    pdfDoc.fontSize(8).font("Helvetica").fillColor("#aaaaaa");
+    pdfDoc.text("This is a quote only and does not constitute a binding contract. Prices subject to change.", margin, y, { width: pageW - margin * 2, align: "center", lineBreak: false });
 
     pdfDoc.end();
   } catch (err) {
