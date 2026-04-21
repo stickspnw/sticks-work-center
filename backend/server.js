@@ -28,7 +28,7 @@ app.use(
   })
 );
 
-app.use(express.json({ limit: "2mb" }));
+app.use(express.json({ limit: "50mb" }));
 
 // Prisma available in routes as req.prisma
 app.use((req, _res, next) => {
@@ -62,7 +62,7 @@ app.get(/^\/(?!api|uploads).*/, (req, res) => {
   res.sendFile(path.join(frontendDist, "index.html"));
 });
 
-const port = process.env.PORT || 4000;
+const port = process.env.PORT || 4001;
 
 app.listen(port, () => {
   console.log(`Backend running on http://localhost:${port}`);

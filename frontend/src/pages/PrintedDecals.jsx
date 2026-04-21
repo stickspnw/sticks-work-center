@@ -260,8 +260,14 @@ export default function PrintedDecals() {
           onClick={async () => {
             try {
               await api.generatePrintedDecalFile({
-                width, height, shape, backgroundColor
-              }, `printed-decal-${width}x${height}-${shape}.pdf`);
+                width, height, shape, backgroundColor, colorName: backgroundColor === "transparent" ? "Transparent" : backgroundColor, qty,
+                imageData: previewUrl || null,
+                imageScale: scale,
+                imagePosX: positionX,
+                imagePosY: positionY,
+                previewWidth: maskWidth,
+                previewHeight: maskHeight,
+              });
             } catch (e) { alert('Error generating print file: ' + e.message); }
           }}
           style={{ padding: '10px 18px', background: '#28a745', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontWeight: 'bold' }}

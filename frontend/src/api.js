@@ -228,7 +228,7 @@ export const api = {
   updatePrintedDecalPricing: (pricePerSqInch) => request("/vinyl/pricing", { method: "PUT", body: { pricePerSqInch } }),
 
   // decal file generation
-  generateCutVinylFile: async (payload, filename) => {
+  generateCutVinylFile: async (payload) => {
     const res = await fetch(`${API_BASE}/decal-files/cut-vinyl`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -239,6 +239,10 @@ export const api = {
       throw new Error(txt || "Failed to generate cut file");
     }
     const blob = await res.blob();
+    // Extract filename from Content-Disposition header
+    const disposition = res.headers.get("Content-Disposition") || "";
+    const match = disposition.match(/filename="?([^";\n]+)"?/);
+    const filename = match ? match[1] : "cut-file.pdf";
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -249,7 +253,7 @@ export const api = {
     window.URL.revokeObjectURL(url);
   },
 
-  generatePrintedDecalFile: async (payload, filename) => {
+  generatePrintedDecalFile: async (payload) => {
     const res = await fetch(`${API_BASE}/decal-files/printed-decal`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -260,6 +264,9 @@ export const api = {
       throw new Error(txt || "Failed to generate print file");
     }
     const blob = await res.blob();
+    const disposition = res.headers.get("Content-Disposition") || "";
+    const match = disposition.match(/filename="?([^";\n]+)"?/);
+    const filename = match ? match[1] : "print-file.pdf";
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;

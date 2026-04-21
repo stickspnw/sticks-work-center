@@ -9,7 +9,7 @@ const DecalConfigurator = () => {
   const [hasOffset, setHasOffset] = useState(false);
   const [offsetColor, setOffsetColor] = useState('black');
   const [offsetSize, setOffsetSize] = useState(0.5);
-  const [font, setFont] = useState('Arial');
+  const [font, setFont] = useState('Impact');
   const [isBold, setIsBold] = useState(true);
   const [isItalic, setIsItalic] = useState(false);
   const [charSpacing, setCharSpacing] = useState(0);
@@ -37,6 +37,8 @@ const DecalConfigurator = () => {
 
   // Get price per sq inch from selected color's linked product
   const selectedColor = vinylColors.find(c => c.colorCode === color);
+  const colorName = selectedColor?.name || color;
+  const offsetColorName = hasOffset ? (vinylColors.find(c => c.colorCode === offsetColor)?.name || offsetColor) : '';
   const PRICE_PER_SQ_INCH = selectedColor?.product?.price ? Number(selectedColor.product.price) : 0.50;
   const OFFSET_PER_SQ_INCH = 0.25;
 
@@ -86,7 +88,9 @@ const DecalConfigurator = () => {
   const estimatedWidth = Number(((measuredWidth / baseFontSize) * height).toFixed(1));
   const area = Number((estimatedWidth * height).toFixed(1));
   const offsetCost = hasOffset ? Number((area * OFFSET_PER_SQ_INCH).toFixed(2)) : 0;
-  const unitPrice = (area * PRICE_PER_SQ_INCH + offsetCost).toFixed(2);
+  const TRANSFER_TAPE_PER_SQ_FT = 0.05;
+  const transferTapeCost = Number(((area / 144) * TRANSFER_TAPE_PER_SQ_FT).toFixed(2));
+  const unitPrice = (area * PRICE_PER_SQ_INCH + offsetCost + transferTapeCost).toFixed(2);
   const totalPrice = (Number(unitPrice) * qty).toFixed(2);
 
   return (
@@ -194,10 +198,38 @@ const DecalConfigurator = () => {
         <div>
           <label>Font:</label>
           <select value={font} onChange={(e) => setFont(e.target.value)} style={inputStyle}>
-            <option value="Arial">Arial</option>
-            <option value="Arial Black">Arial Black</option>
-            <option value="Helvetica">Helvetica</option>
             <option value="Impact">Impact</option>
+            <option value="Stencil">Stencil</option>
+            <option value="Arial Black">Arial Black</option>
+            <option value="Felix Titling">Felix Titling</option>
+            <option value="Onyx">Onyx</option>
+            <option value="Playbill">Playbill</option>
+            <option value="Old English Text MT">Old English Text MT</option>
+            <option value="Rage Italic">Rage Italic</option>
+            <option value="Matura MT Script Capitals">Matura MT Script Capitals</option>
+            <option value="Mistral">Mistral</option>
+            <option value="Forte">Forte</option>
+            <option value="Freestyle Script">Freestyle Script</option>
+            <option value="Brush Script MT">Brush Script MT</option>
+            <option value="Vladimir Script">Vladimir Script</option>
+            <option value="Curlz MT">Curlz MT</option>
+            <option value="Jokerman">Jokerman</option>
+            <option value="Niagara Engraved">Niagara Engraved</option>
+            <option value="Niagara Solid">Niagara Solid</option>
+            <option value="Cooper Black">Cooper Black</option>
+            <option value="Gill Sans Ultra Bold">Gill Sans Ultra Bold</option>
+            <option value="Rockwell Extra Bold">Rockwell Extra Bold</option>
+            <option value="Showcard Gothic">Showcard Gothic</option>
+            <option value="Magneto">Magneto</option>
+            <option value="Ravie">Ravie</option>
+            <option value="Papyrus">Papyrus</option>
+            <option value="Goudy Old Style">Goudy Old Style</option>
+            <option value="Copperplate Gothic">Copperplate Gothic</option>
+            <option value="Engravers MT">Engravers MT</option>
+            <option value="OCR A Extended">OCR A Extended</option>
+            <option value="Century Gothic">Century Gothic</option>
+            <option value="Arial">Arial</option>
+            <option value="Helvetica">Helvetica</option>
             <option value="Times New Roman">Times New Roman</option>
             <option value="Courier New">Courier New</option>
             <option value="Georgia">Georgia</option>
@@ -257,8 +289,8 @@ const DecalConfigurator = () => {
             <label>Offset Size:</label>
             <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
               <button type="button" onClick={() => decrement(setOffsetSize, offsetSize, 0.25, 0.25)} style={btnStyle}>-</button>
-              <input type="number" value={offsetSize} min="0.25" max="2" step="0.25" onChange={(e) => setOffsetSize(Math.max(0.25, parseFloat(e.target.value) || 0.25))} style={{...inputStyle, textAlign: 'center', flex: 1}} />
-              <button type="button" onClick={() => increment(setOffsetSize, offsetSize, 0.25, 2)} style={btnStyle}>+</button>
+              <input type="number" value={offsetSize} min="0.25" max="6" step="0.25" onChange={(e) => setOffsetSize(Math.max(0.25, parseFloat(e.target.value) || 0.25))} style={{...inputStyle, textAlign: 'center', flex: 1}} />
+              <button type="button" onClick={() => increment(setOffsetSize, offsetSize, 0.25, 6)} style={btnStyle}>+</button>
             </div>
           </div>
         </div>
@@ -270,6 +302,7 @@ const DecalConfigurator = () => {
         <small>Unit: ${unitPrice}</small><br />
         <small>Size: {estimatedWidth}" x {height}"</small><br />
         <small>Vinyl Usage: {area} sq in</small><br />
+        <small>Transfer Tape: ${transferTapeCost.toFixed(2)} per unit</small><br />
         {hasOffset && (
           <small>Offset: {offsetColor}, {offsetSize.toFixed(1)}" — ${offsetCost.toFixed(2)} per unit</small>
         )}
@@ -281,8 +314,8 @@ const DecalConfigurator = () => {
           onClick={async () => {
             try {
               await api.generateCutVinylFile({
-                text, height, font, isBold, isItalic, charSpacing, hasOffset: false, offsetSize: 0, layer: 'text'
-              }, `cut-text-${text.replace(/\s+/g, '-')}.pdf`);
+                text, height, font, isBold, isItalic, charSpacing, hasOffset: false, offsetSize: 0, layer: 'text', colorName, qty
+              });
             } catch (e) { alert('Error generating text file: ' + e.message); }
           }}
           style={{ padding: '10px 18px', background: '#28a745', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontWeight: 'bold' }}
@@ -294,8 +327,8 @@ const DecalConfigurator = () => {
             onClick={async () => {
               try {
                 await api.generateCutVinylFile({
-                  text, height, font, isBold, isItalic, charSpacing, hasOffset, offsetSize, layer: 'offset'
-                }, `cut-offset-${text.replace(/\s+/g, '-')}.pdf`);
+                  text, height, font, isBold, isItalic, charSpacing, hasOffset, offsetSize, layer: 'offset', colorName: offsetColorName, qty
+                });
               } catch (e) { alert('Error generating offset file: ' + e.message); }
             }}
             style={{ padding: '10px 18px', background: '#dc3545', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontWeight: 'bold' }}

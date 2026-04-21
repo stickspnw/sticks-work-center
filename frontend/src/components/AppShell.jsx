@@ -89,7 +89,11 @@ setBranding({
     <div>
       <div className="topbar">
         <div className="topbar-inner">
-          <div className="brand" style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div
+            className="brand"
+            style={{ display: "flex", alignItems: "center", gap: 12, cursor: "pointer" }}
+            onClick={() => nav("/decals")}
+          >
             {branding.logoUrl ? (
               <img
                 src={branding.logoUrl}

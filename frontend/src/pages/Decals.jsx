@@ -1,10 +1,33 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import DecalConfigurator from "../components/DecalConfigurator.jsx";
+import { api } from "../api.js";
 
 export default function Decals() {
+  const [logoUrl, setLogoUrl] = useState("");
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const b = await api.brandingGet();
+        if (b && typeof b === "object") {
+          const rawLogo = b.logoUrl || b.logoPath || b.logo_path || "";
+          const fullLogo = rawLogo && rawLogo.startsWith("/") ? `${window.location.origin}${rawLogo}` : rawLogo;
+          setLogoUrl(fullLogo);
+        }
+      } catch {}
+    })();
+  }, []);
+
   return (
     <div style={{ padding: '20px' }}>
+      {/* Logo */}
+      {logoUrl && (
+        <div style={{ textAlign: 'center', marginBottom: '10px' }}>
+          <img src={logoUrl} alt="Logo" style={{ height: 80, maxWidth: 400, objectFit: 'contain', borderRadius: 12 }} />
+        </div>
+      )}
+
       {/* Navigation Bar */}
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', marginBottom: '20px', position: 'relative' }}>
         {/* Login - small, on the left */}
