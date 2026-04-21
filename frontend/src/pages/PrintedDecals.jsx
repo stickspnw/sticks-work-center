@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api.js";
 
@@ -19,6 +19,7 @@ export default function PrintedDecals() {
   const [startY, setStartY] = useState(0);
   const [startPosX, setStartPosX] = useState(0);
   const [startPosY, setStartPosY] = useState(0);
+  const previewRef = useRef(null);
 
   // Fetch pricing from API
   const [pricePerSqInch, setPricePerSqInch] = useState(0.60);
@@ -130,7 +131,7 @@ export default function PrintedDecals() {
       <p style={{ textAlign: 'center', marginBottom: '20px' }}>Upload art, choose a shape, scale it, and select quantity + size.</p>
 
       {/* Visual Preview */}
-      <div style={{ width: "400px", height: "400px", margin: "0 auto 20px", background: '#333', position: 'relative' }}>
+      <div ref={previewRef} style={{ width: "400px", height: "400px", margin: "0 auto 20px", background: '#333', position: 'relative' }}>
         {/* Measurement guides */}
         <div style={{ position: 'absolute', left: '20px', right: '20px', top: '50%', height: '1px', background: 'rgba(255,255,255,0.75)', zIndex: 2 }} />
         <div style={{ position: 'absolute', left: '50%', top: '20px', bottom: '20px', width: '1px', background: 'rgba(255,255,255,0.75)', zIndex: 2 }} />
@@ -255,7 +256,7 @@ export default function PrintedDecals() {
       </div>
 
       {/* Generate Print File */}
-      <div style={{ marginTop: '15px' }}>
+      <div style={{ marginTop: '15px', display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
         <button
           onClick={async () => {
             try {
@@ -273,6 +274,26 @@ export default function PrintedDecals() {
           style={{ padding: '10px 18px', background: '#28a745', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontWeight: 'bold' }}
         >
           Print File (PDF)
+        </button>
+        <button
+          onClick={async () => {
+            try {
+              let previewImage = null;
+              if (previewRef.current) {
+                const canvas = await import('html2canvas').then(m => m.default || m).then(h2c => h2c(previewRef.current, { backgroundColor: '#333333', scale: 2 })).catch(() => null);
+                if (canvas) previewImage = canvas.toDataURL('image/png');
+              }
+              await api.generateQuote({
+                type: 'printed-decal',
+                shape, backgroundColor, width, height,
+                area, unitPrice: (area * PRICE_PER_SQ_INCH).toFixed(2), totalPrice, qty,
+                previewImage,
+              });
+            } catch (e) { alert('Error generating quote: ' + e.message); }
+          }}
+          style={{ padding: '10px 18px', background: '#6f42c1', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontWeight: 'bold' }}
+        >
+          Print Quote
         </button>
       </div>
     </div>

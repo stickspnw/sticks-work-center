@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { api } from '../api.js';
 
 const DecalConfigurator = () => {
@@ -13,6 +13,7 @@ const DecalConfigurator = () => {
   const [isBold, setIsBold] = useState(true);
   const [isItalic, setIsItalic] = useState(false);
   const [charSpacing, setCharSpacing] = useState(0);
+  const previewRef = useRef(null);
 
   // Vinyl colors from database
   const [vinylColors, setVinylColors] = useState([]);
@@ -98,7 +99,7 @@ const DecalConfigurator = () => {
       <h2 style={{ textAlign: 'center' }}>Cut Vinyl</h2>
 
       {/* Visual Preview Box */}
-      <div style={{
+      <div ref={previewRef} style={{
         height: `${previewHeight}px`, background: '#333', display: 'flex',
         alignItems: 'center', justifyContent: 'center', position: 'relative',
         marginBottom: '20px', borderRadius: '5px', overflow: 'hidden', width: '100%', maxWidth: `${previewWidth}px`, margin: '0 auto 20px', boxShadow: '0 4px 12px rgba(0,0,0,0.3)'
@@ -336,6 +337,33 @@ const DecalConfigurator = () => {
             Cut File (Offset)
           </button>
         )}
+      </div>
+
+      {/* Print Quote */}
+      <div style={{ marginTop: '10px' }}>
+        <button
+          onClick={async () => {
+            try {
+              // Capture preview as image using html2canvas-style approach
+              let previewImage = null;
+              if (previewRef.current) {
+                const canvas = await import('html2canvas').then(m => m.default || m).then(h2c => h2c(previewRef.current, { backgroundColor: '#333333', scale: 2 })).catch(() => null);
+                if (canvas) previewImage = canvas.toDataURL('image/png');
+              }
+              await api.generateQuote({
+                type: 'cut-vinyl',
+                text, height, font, isBold, isItalic, charSpacing,
+                colorName, hasOffset, offsetColorName, offsetSize,
+                estimatedWidth, area, unitPrice, totalPrice, qty,
+                transferTapeCost, offsetCost,
+                previewImage,
+              });
+            } catch (e) { alert('Error generating quote: ' + e.message); }
+          }}
+          style={{ padding: '10px 18px', background: '#6f42c1', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontWeight: 'bold' }}
+        >
+          Print Quote
+        </button>
       </div>
     </div>
   );

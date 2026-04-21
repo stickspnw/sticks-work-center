@@ -420,6 +420,184 @@ router.post("/printed-decal", (req, res) => {
   }
 });
 
+// POST /api/decal-files/quote
+// Generates a professional quote PDF with logo, preview, specs, pricing
+router.post("/quote", async (req, res) => {
+  try {
+    const {
+      type, // "cut-vinyl" or "printed-decal"
+      decalNumber,
+      // Cut vinyl fields
+      text, height, font, isBold, isItalic, charSpacing,
+      colorName, hasOffset, offsetColorName, offsetSize,
+      estimatedWidth, area, unitPrice, totalPrice, qty,
+      transferTapeCost, offsetCost,
+      // Printed decal fields
+      shape, backgroundColor, width,
+      // Preview image
+      previewImage,
+    } = req.body;
+
+    const decalNum = decalNumber || nextDecalNumber();
+
+    // Try to load branding logo
+    let logoBuffer = null;
+    let companyName = "";
+    try {
+      const { PrismaClient } = await import("@prisma/client");
+      const prisma = new PrismaClient();
+      const rows = await prisma.setting.findMany({
+        where: { key: { in: ["company_name", "logo_path"] } },
+      });
+      const map = Object.fromEntries(rows.map((r) => [r.key, r.value]));
+      companyName = map.company_name || "";
+      if (map.logo_path) {
+        const logoPath = path.resolve(map.logo_path.replace(/^\//, ""));
+        if (fs.existsSync(logoPath)) {
+          logoBuffer = fs.readFileSync(logoPath);
+        }
+      }
+      await prisma.$disconnect();
+    } catch {}
+
+    // Parse preview image
+    let previewBuffer = null;
+    if (previewImage) {
+      const matches = previewImage.match(/^data:image\/(\w+);base64,(.+)$/);
+      if (matches) {
+        previewBuffer = Buffer.from(matches[2], "base64");
+      }
+    }
+
+    const pdfDoc = new PDFDocument({
+      size: "LETTER",
+      margin: 50,
+    });
+
+    const chunks = [];
+    pdfDoc.on("data", (chunk) => chunks.push(chunk));
+    pdfDoc.on("end", () => {
+      const pdfBuffer = Buffer.concat(chunks);
+      const filename = `QUOTE_DECAL${decalNum}.pdf`;
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+      res.send(pdfBuffer);
+    });
+
+    const pageW = 612; // letter width
+    let y = 50;
+
+    // --- HEADER ---
+    // Logo
+    if (logoBuffer) {
+      try {
+        pdfDoc.image(logoBuffer, 50, y, { height: 60, width: 200 });
+      } catch {}
+    }
+    // Company name right of logo
+    if (companyName) {
+      pdfDoc.fontSize(18).font("Helvetica-Bold").fillColor("#333333");
+      pdfDoc.text(companyName, logoBuffer ? 260 : 50, y + 10, { width: 300 });
+    }
+    y += 70;
+
+    // Divider line
+    pdfDoc.moveTo(50, y).lineTo(pageW - 50, y).strokeColor("#cccccc").lineWidth(1).stroke();
+    y += 15;
+
+    // --- QUOTE TITLE ---
+    pdfDoc.fontSize(24).font("Helvetica-Bold").fillColor("#1a1a1a");
+    pdfDoc.text("QUOTE", 50, y);
+    pdfDoc.fontSize(14).font("Helvetica").fillColor("#666666");
+    pdfDoc.text(`DECAL #${decalNum}`, 50, y + 28);
+    y += 55;
+
+    // Date
+    const today = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+    pdfDoc.fontSize(10).fillColor("#999999");
+    pdfDoc.text(`Date: ${today}`, 50, y);
+    y += 25;
+
+    // --- PREVIEW IMAGE ---
+    if (previewBuffer) {
+      const previewMaxW = 250;
+      const previewMaxH = 180;
+      try {
+        pdfDoc.image(previewBuffer, 50, y, { width: previewMaxW, height: previewMaxH, fit: "contain" });
+      } catch {}
+      y += previewMaxH + 15;
+    }
+
+    // Divider
+    pdfDoc.moveTo(50, y).lineTo(pageW - 50, y).strokeColor("#cccccc").lineWidth(0.5).stroke();
+    y += 15;
+
+    // --- SPECS TABLE ---
+    const labelX = 50;
+    const valueX = 220;
+    const rowH = 22;
+
+    function specRow(label, value) {
+      pdfDoc.fontSize(11).font("Helvetica").fillColor("#555555");
+      pdfDoc.text(label, labelX, y, { width: 160 });
+      pdfDoc.font("Helvetica-Bold").fillColor("#1a1a1a");
+      pdfDoc.text(String(value), valueX, y, { width: 300 });
+      y += rowH;
+    }
+
+    if (type === "cut-vinyl") {
+      specRow("Type", "Cut Vinyl");
+      specRow("Text", text || "—");
+      specRow("Font", font || "—");
+      specRow("Text Height", `${height}"`);
+      specRow("Estimated Width", `${estimatedWidth}"`);
+      specRow("Color", colorName || "—");
+      specRow("Character Spacing", `${charSpacing}px`);
+      if (hasOffset) {
+        specRow("Offset Background", "Yes");
+        specRow("Offset Color", offsetColorName || "—");
+        specRow("Offset Size", `${offsetSize}"`);
+      }
+      specRow("Quantity", qty);
+      specRow("Vinyl Area", `${area} sq in`);
+      specRow("Transfer Tape", `$${(transferTapeCost || 0).toFixed(2)}/unit`);
+      if (hasOffset) {
+        specRow("Offset Cost", `$${(offsetCost || 0).toFixed(2)}/unit`);
+      }
+      specRow("Unit Price", `$${unitPrice}`);
+    } else {
+      specRow("Type", "Printed Decal");
+      specRow("Shape", shape || "—");
+      specRow("Size", `${width}" x ${height}"`);
+      specRow("Background", backgroundColor === "transparent" ? "Transparent" : (backgroundColor || "—"));
+      specRow("Quantity", qty);
+      specRow("Area", `${area} sq in`);
+      specRow("Unit Price", `$${unitPrice}`);
+    }
+
+    y += 10;
+
+    // Divider
+    pdfDoc.moveTo(50, y).lineTo(pageW - 50, y).strokeColor("#cccccc").lineWidth(0.5).stroke();
+    y += 15;
+
+    // --- TOTAL ---
+    pdfDoc.fontSize(18).font("Helvetica-Bold").fillColor("#1a1a1a");
+    pdfDoc.text("Total:", labelX, y);
+    pdfDoc.text(`$${totalPrice}`, valueX, y);
+    y += 30;
+
+    // Footer note
+    pdfDoc.fontSize(9).font("Helvetica").fillColor("#999999");
+    pdfDoc.text("This is a quote and does not constitute a binding contract. Prices subject to change.", 50, y, { width: pageW - 100, align: "center" });
+
+    pdfDoc.end();
+  } catch (err) {
+    console.error("Quote PDF error:", err);
+    res.status(500).json({ error: "Failed to generate quote: " + err.message });
+  }
+});
+
 // Helper: draw SVG path data onto PDFKit document
 function drawSvgPath(doc, svgPath) {
   // Parse SVG path commands and draw on PDFKit

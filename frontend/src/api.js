@@ -276,6 +276,30 @@ export const api = {
     a.remove();
     window.URL.revokeObjectURL(url);
   },
+
+  generateQuote: async (payload) => {
+    const res = await fetch(`${API_BASE}/decal-files/quote`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const txt = await res.text().catch(() => "");
+      throw new Error(txt || "Failed to generate quote");
+    }
+    const blob = await res.blob();
+    const disposition = res.headers.get("Content-Disposition") || "";
+    const match = disposition.match(/filename="?([^";\n]+)"?/);
+    const filename = match ? match[1] : "quote.pdf";
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(url);
+  },
 };
 
 export function canWrite(user) {
