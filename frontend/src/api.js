@@ -1,6 +1,7 @@
 // frontend/src/api.js
 
-const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:4000/api";
+const API_BASE = "/api";
+
 
 
 // -----------------------
@@ -209,6 +210,65 @@ export const api = {
     request(`/orders/${orderId}/attachments/${attachmentId}/versions`, { method: "POST", body: { googleUrl, initials, note: note ?? null } }),
   archiveAttachment: (orderId, attachmentId, initials) =>
     request(`/orders/${orderId}/attachments/${attachmentId}/archive`, { method: "POST", body: { initials } }),
+
+  // vinyl colors
+  vinylColors: () => request("/vinyl/colors"),
+  createVinylColor: (payload) => request("/vinyl/colors", { method: "POST", body: payload }),
+  updateVinylColor: (id, payload) => request(`/vinyl/colors/${id}`, { method: "PUT", body: payload }),
+  deleteVinylColor: (id) => request(`/vinyl/colors/${id}`, { method: "DELETE" }),
+
+  // vinyl products
+  vinylProducts: () => request("/vinyl/products"),
+  createVinylProduct: (payload) => request("/vinyl/products", { method: "POST", body: payload }),
+  updateVinylProduct: (id, payload) => request(`/vinyl/products/${id}`, { method: "PUT", body: payload }),
+  deleteVinylProduct: (id) => request(`/vinyl/products/${id}`, { method: "DELETE" }),
+
+  // printed decal pricing
+  printedDecalPricing: () => request("/vinyl/pricing"),
+  updatePrintedDecalPricing: (pricePerSqInch) => request("/vinyl/pricing", { method: "PUT", body: { pricePerSqInch } }),
+
+  // decal file generation
+  generateCutVinylFile: async (payload, filename) => {
+    const res = await fetch(`${API_BASE}/decal-files/cut-vinyl`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const txt = await res.text().catch(() => "");
+      throw new Error(txt || "Failed to generate cut file");
+    }
+    const blob = await res.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(url);
+  },
+
+  generatePrintedDecalFile: async (payload, filename) => {
+    const res = await fetch(`${API_BASE}/decal-files/printed-decal`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const txt = await res.text().catch(() => "");
+      throw new Error(txt || "Failed to generate print file");
+    }
+    const blob = await res.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(url);
+  },
 };
 
 export function canWrite(user) {

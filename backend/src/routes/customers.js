@@ -141,12 +141,24 @@ router.post("/:id/archive", requireAuth, requireAdmin, async (req, res) => {
     data: { isArchived: true },
   });
 
-  await logAudit(prisma, req, {
-    action: "CUSTOMER_ARCHIVED",
-    details: `Archived customer ${existing.name}`,
-    initials,
-    detailsJson: { customerId: id },
+ // ✅ Audit (Customer archived) - do NOT use targetUserId/targetCustomerId (doesn't exist in schema)
+const actorId = req.user?.id || req.user?.sub || req.userId || null;
+
+if (actorId) {
+  await prisma.auditLog.create({
+    data: {
+      action: "CUSTOMER_ARCHIVED",
+      actorUser: { connect: { id: actorId } },
+      // no targetUser here; customer isn't a User model
+      detailsJson: {
+        customerId: id,
+        customerName: existing?.name ?? updated?.name ?? null,
+      },
+      initials,
+    },
   });
+}
+
 
   res.json(updated);
 });

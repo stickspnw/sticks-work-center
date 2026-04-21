@@ -8,6 +8,8 @@ import CompletedWorks from "./pages/CompletedWorks.jsx";
 import Admin from "./pages/Admin.jsx";
 import { getToken, getUser } from "./api.js";
 import OrderDetail from "./pages/OrderDetail.jsx";
+import Decals from "./pages/Decals.jsx";
+import PrintedDecals from "./pages/PrintedDecals.jsx";
 
 
 function Protected({ children }) {
@@ -26,7 +28,9 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
-      <Route path="/" element={<Navigate to="/work-in-progress" replace />} />
+      <Route path="/decals" element={<Decals />} />
+      <Route path="/printed-decals" element={<PrintedDecals />} />
+      <Route path="/" element={<Navigate to="/decals" replace />} />
 
       <Route path="/create-order" element={<Protected><CreateOrder /></Protected>} />
       <Route path="/orders/:id" element={<OrderDetail />} />

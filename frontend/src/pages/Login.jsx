@@ -36,12 +36,12 @@ export default function Login() {
           <div style={{ marginTop:12, marginBottom:10, fontWeight:800, color:"var(--muted)" }}>Password</div>
           <input className="input" type="password" value={password} onChange={(e)=>setPassword(e.target.value)} />
           <div style={{ display:"flex", gap:10, marginTop:16 }}>
-            <button className="btn primary" disabled={loading} style={{ flex:1 }}>
+            <button className="btn primary" disabled={loading} style={{ flex:1, backgroundColor: '#0056b3', borderColor: '#0056b3' }}>
               {loading ? "Signing in..." : "Log In"}
             </button>
           </div>
           <div style={{ marginTop:14, color:"var(--muted)", fontWeight:700, fontSize:12 }}>
-            Default users (seeded): jordan.admin / 739204 • kaden.standard / 418672
+           
           </div>
         </form>
       </div>

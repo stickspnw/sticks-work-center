@@ -35,11 +35,12 @@ async function downloadWorkOrder(orderId, orderNumber) {
 }
 
 export default function CompletedWorks() {
-    const user = getUser();
+  const user = getUser();
   const isAdmin = user?.role === "ADMIN";
 
   const [orders, setOrders] = useState([]);
   const [err, setErr] = useState("");
+  const [deletingId, setDeletingId] = useState(null);
 
   async function load() {
     try {
@@ -50,63 +51,108 @@ export default function CompletedWorks() {
       setErr(e.message);
     }
   }
-    async function onDelete(o) {
+
+  async function onDelete(o) {
     if (!isAdmin) return;
+    if (deletingId) return; // prevent double-click spam
 
     const initials = prompt("Enter initials (2–3 letters) to confirm delete:");
     if (!initials) return;
 
+    const init = initials.trim().toUpperCase();
+    if (init.length < 2 || init.length > 3) {
+      alert("Initials must be 2–3 letters.");
+      return;
+    }
+
+    // Optimistic UI remove (so it disappears instantly)
+    const prev = orders;
+    setDeletingId(o.id);
+    setOrders((cur) => cur.filter((x) => x.id !== o.id));
+
     try {
-      await api.deleteOrder(o.id, initials.trim().toUpperCase());
+      await api.deleteOrder(o.id, init);
+
+      // Re-sync from server (in case anything else changed)
       await load();
       alert("Deleted.");
     } catch (e) {
+      // Roll back UI if delete failed
+      setOrders(prev);
       alert(e.message || "Failed to delete order");
+    } finally {
+      setDeletingId(null);
     }
   }
 
-
-  useEffect(()=>{ load(); }, []);
+  useEffect(() => {
+    load();
+  }, []);
 
   return (
     <AppShell>
-      <div className="row" style={{ alignItems:"center", marginBottom:12 }}>
+      <div className="row" style={{ alignItems: "center", marginBottom: 12 }}>
         <div className="col">
           <div className="h1">Completed Works</div>
           <div className="h2">Finished orders (read-only)</div>
         </div>
-        <button className="btn outline" onClick={load}>Refresh</button>
+        <button className="btn outline" onClick={load} disabled={!!deletingId}>
+          Refresh
+        </button>
       </div>
 
-      {err && <div className="notice" style={{ marginBottom:12 }}>{err}</div>}
+      {err && (
+        <div className="notice" style={{ marginBottom: 12 }}>
+          {err}
+        </div>
+      )}
 
       <table className="table">
         <thead>
           <tr>
-            <th>Order #</th><th>Customer</th><th>Completed</th><th>Actions</th>
+            <th>Order #</th>
+            <th>Customer</th>
+            <th>Completed</th>
+            <th>Actions</th>
           </tr>
         </thead>
         <tbody>
-          {orders.map(o => (
-            <tr key={o.id}>
-              <td style={{ fontWeight:900, color:"var(--red)" }}>{o.orderNumber}</td>
-              <td style={{ fontWeight:800 }}>{o.customerNameSnapshot}</td>
+          {orders.map((o) => (
+            <tr key={o.id} style={deletingId === o.id ? { opacity: 0.6 } : undefined}>
+              <td style={{ fontWeight: 900, color: "var(--red)" }}>{o.orderNumber}</td>
+              <td style={{ fontWeight: 800 }}>{o.customerNameSnapshot}</td>
               <td>{o.finishedAt ? new Date(o.finishedAt).toLocaleString() : "-"}</td>
-             <td style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-  <button className="btn" onClick={() => downloadWorkOrder(o.id, o.orderNumber)}>
-    Download Work Order
-  </button>
+              <td style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <button
+                  className="btn"
+                  onClick={() => downloadWorkOrder(o.id, o.orderNumber)}
+                  disabled={deletingId === o.id}
+                >
+                  Download Work Order
+                </button>
 
-  {isAdmin && (
-    <button className="btn danger" type="button" onClick={() => onDelete(o)}>
-      Delete
-    </button>
-  )}
-</td>
-
+                {isAdmin && (
+                  <button
+                    className="btn danger"
+                    type="button"
+                    onClick={() => onDelete(o)}
+                    disabled={deletingId === o.id}
+                    title={deletingId === o.id ? "Deleting..." : "Delete"}
+                  >
+                    {deletingId === o.id ? "Deleting..." : "Delete"}
+                  </button>
+                )}
+              </td>
             </tr>
           ))}
-          {orders.length===0 && <tr><td colSpan="4" style={{ color:"var(--muted)" }}>No completed orders yet.</td></tr>}
+
+          {orders.length === 0 && (
+            <tr>
+              <td colSpan="4" style={{ color: "var(--muted)" }}>
+                No completed orders yet.
+              </td>
+            </tr>
+          )}
         </tbody>
       </table>
     </AppShell>

@@ -63,12 +63,50 @@ model Customer {
 }
 
 model Product {
-  id        String        @id @default(cuid())
-  name      String        @unique
-  price     Decimal
-  status    ProductStatus @default(ACTIVE)
-  createdAt DateTime      @default(now())
-  updatedAt DateTime      @updatedAt
+  id             String        @id @default(cuid())
+  name           String        
+  price          Decimal
+  status         ProductStatus @default(ACTIVE)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  
+  vinylProducts  VinylProduct[]
+  vinylColors    VinylColor[]
+}
+
+model VinylColor {
+  id          String        @id @default(cuid())
+  name        String        @unique
+  colorCode   String        // hex code or color name
+  isActive    Boolean       @default(true)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  productId   String?       // Links to Product for price per sq inch
+  product     Product?      @relation(fields: [productId], references: [id])
+  
+  vinylProducts VinylProduct[]
+}
+
+model PrintedDecalPricing {
+  id          String        @id @default(cuid())
+  name        String        @default("Printed Decal Price")
+  pricePerSqInch Decimal    @default(0.60)
+  isActive    Boolean       @default(true)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+}
+
+model VinylProduct {
+  id          String        @id @default(cuid())
+  name        String
+  pricePerSqInch Decimal
+  productId   String?
+  product     Product?      @relation(fields: [productId], references: [id])
+  vinylColorId String
+  vinylColor  VinylColor    @relation(fields: [vinylColorId], references: [id])
+  isActive    Boolean       @default(true)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
 }
 
 model OrderSequence {

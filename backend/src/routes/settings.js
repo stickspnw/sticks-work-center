@@ -21,7 +21,7 @@ router.get("/", requireAuth, async (req, res) => {
   res.json(Object.fromEntries(settings.map(s => [s.key, s.value])));
 });
 // GET /api/settings/branding (admin auth required)
-router.get("/branding", requireAuth, requireRole(["ADMIN"]), async (req, res) => {
+router.get("/branding",   async (req, res) => {
   const prisma = req.prisma;
 
   const rows = await prisma.setting.findMany({
@@ -32,7 +32,10 @@ router.get("/branding", requireAuth, requireRole(["ADMIN"]), async (req, res) =>
 
   res.json({
     companyName: map.company_name || "",
-    logoUrl: map.logo_path || "",
+    logoUrl: map.logo_path
+  ? `${req.protocol}://${req.get("host")}${map.logo_path}`
+  : "",
+
   });
 });
 

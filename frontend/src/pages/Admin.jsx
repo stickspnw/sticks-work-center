@@ -63,6 +63,24 @@ export default function Admin() {
   const [customersLoading, setCustomersLoading] = useState(true);
   const [customersErr, setCustomersErr] = useState("");
 
+  // -----------------------
+  // Vinyl Colors
+  // -----------------------
+  const [vinylColors, setVinylColors] = useState([]);
+  const [vinylColorsLoading, setVinylColorsLoading] = useState(true);
+  const [vinylColorsErr, setVinylColorsErr] = useState("");
+  const [newColorName, setNewColorName] = useState("");
+  const [newColorCode, setNewColorCode] = useState("");
+  const [newColorProductId, setNewColorProductId] = useState("");
+
+  // -----------------------
+  // Printed Decal Pricing
+  // -----------------------
+  const [printedDecalPricing, setPrintedDecalPricing] = useState(null);
+  const [printedDecalPricingLoading, setPrintedDecalPricingLoading] = useState(true);
+  const [printedDecalPricingErr, setPrintedDecalPricingErr] = useState("");
+  const [newPrintedDecalPrice, setNewPrintedDecalPrice] = useState("");
+
   async function refreshProducts() {
     setProductsErr("");
     setProductsLoading(true);
@@ -136,11 +154,42 @@ export default function Admin() {
     }
   }
 
+  async function refreshVinylColors() {
+    if (!isAdmin) return;
+    setVinylColorsErr("");
+    setVinylColorsLoading(true);
+    try {
+      const data = await api.vinylColors();
+      setVinylColors(Array.isArray(data) ? data : []);
+    } catch (e) {
+      setVinylColorsErr(e.message || "Failed to load vinyl colors");
+    } finally {
+      setVinylColorsLoading(false);
+    }
+  }
+
+  async function refreshPrintedDecalPricing() {
+    if (!isAdmin) return;
+    setPrintedDecalPricingErr("");
+    setPrintedDecalPricingLoading(true);
+    try {
+      const data = await api.printedDecalPricing();
+      setPrintedDecalPricing(data);
+      setNewPrintedDecalPrice(data?.pricePerSqInch || "0.60");
+    } catch (e) {
+      setPrintedDecalPricingErr(e.message || "Failed to load pricing");
+    } finally {
+      setPrintedDecalPricingLoading(false);
+    }
+  }
+
   useEffect(() => {
     refreshProducts();
     refreshUsers();
     refreshAudit(AUDIT_STEP);
     refreshBranding();
+    refreshVinylColors();
+    refreshPrintedDecalPricing();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -293,13 +342,77 @@ export default function Admin() {
   }
 
   // -----------------------
+  // Vinyl Colors handlers
+  // -----------------------
+  async function onCreateVinylColor(e) {
+    e.preventDefault();
+    if (!isAdmin) return;
+    
+    setVinylColorsErr("");
+    const trimmedName = newColorName.trim();
+    const trimmedCode = newColorCode.trim();
+
+    if (trimmedName.length < 2) return setVinylColorsErr("Color name must be at least 2 characters.");
+    if (trimmedCode.length < 1) return setVinylColorsErr("Color code is required.");
+    if (!newColorProductId) return setVinylColorsErr("Product (for pricing) is required.");
+
+    try {
+      await api.createVinylColor({ name: trimmedName, colorCode: trimmedCode, productId: newColorProductId });
+      setNewColorName("");
+      setNewColorCode("");
+      setNewColorProductId("");
+      await refreshVinylColors();
+      await refreshAudit(auditTake);
+    } catch (e2) {
+      setVinylColorsErr(e2.message || "Failed to create vinyl color");
+    }
+  }
+
+  async function deleteVinylColor(colorId) {
+    if (!isAdmin) return;
+    
+    const initials = prompt("Enter initials (2-3 letters) to confirm delete:");
+    if (!initials) return;
+
+    try {
+      await api.deleteVinylColor(colorId);
+      await refreshVinylColors();
+      await refreshAudit(auditTake);
+    } catch (e) {
+      setVinylColorsErr(e.message || "Failed to delete vinyl color");
+    }
+  }
+
+  // -----------------------
+  // Printed Decal Pricing handlers
+  // -----------------------
+  async function onUpdatePrintedDecalPricing(e) {
+    e.preventDefault();
+    if (!isAdmin) return;
+    
+    setPrintedDecalPricingErr("");
+    const price = Number(newPrintedDecalPrice);
+
+    if (Number.isNaN(price) || price < 0) return setPrintedDecalPricingErr("Price must be a valid non-negative number.");
+
+    try {
+      await api.updatePrintedDecalPricing(price);
+      await refreshPrintedDecalPricing();
+      await refreshAudit(auditTake);
+      alert("Printed decal price updated!");
+    } catch (e2) {
+      setPrintedDecalPricingErr(e2.message || "Failed to update pricing");
+    }
+  }
+
+  // -----------------------
   // Exports
   // -----------------------
  async function downloadCompletedCsv() {
   if (!isAdmin) return;
 
   // Ask for initials
-  const initials = prompt("Enter initials (2–3 letters) to export completed orders:");
+  const initials = prompt("Enter initials (2-3 letters) to export completed orders:");
   if (!initials) return;
 
   try {
@@ -319,6 +432,7 @@ export default function Admin() {
       ["customers", "Customers"],
       ["branding", "Branding"],
       ["exports", "Exports"],
+      ["vinyl", "Vinyl Products"],
     ];
 
     return (
@@ -334,6 +448,10 @@ export default function Admin() {
                 if (id === "customers") refreshCustomers();
                 if (id === "branding") refreshBranding();
                 if (id === "audit") refreshAudit(auditTake);
+                if (id === "vinyl") {
+                  refreshVinylColors();
+                  refreshPrintedDecalPricing();
+                }
               }}
             >
               {label}
@@ -887,6 +1005,136 @@ export default function Admin() {
               )}
             </>
           )}
+        </div>
+      )}
+
+      {/* VINYL PRODUCTS */}
+      {section === "vinyl" && (
+        <div className="card" style={{ marginTop: 12 }}>
+          <div className="h2">Vinyl Products</div>
+          <div style={{ color: "var(--muted)", fontWeight: 700, marginTop: 6 }}>Manage vinyl colors (linked to products for pricing) and printed decal pricing</div>
+
+          {/* Vinyl Colors Section */}
+          <div style={{ marginTop: 20, padding: "16px", background: "rgba(255,255,255,0.02)", borderRadius: "8px" }}>
+            <h3 style={{ marginTop: 0, marginBottom: 16 }}>Vinyl Colors</h3>
+            <div style={{ fontSize: "13px", color: "var(--muted)", marginBottom: 12 }}>
+              Each color links to a Product. That Product's price = price per sq inch for cut vinyl.
+            </div>
+            
+            {vinylColorsErr && (
+              <div style={{ marginBottom: 10, padding: 10, borderRadius: 12, border: "1px solid var(--red)", color: "var(--red)", fontWeight: 800 }}>
+                {vinylColorsErr}
+              </div>
+            )}
+
+            <form onSubmit={onCreateVinylColor} style={{ display: "flex", gap: 10, marginBottom: 14, flexWrap: "wrap", alignItems: "center" }}>
+              <input className="input" placeholder="Color name" value={newColorName} onChange={(e) => setNewColorName(e.target.value)} style={{ minWidth: 150 }} />
+              <input className="input" placeholder="Hex code (e.g., #ff0000)" value={newColorCode} onChange={(e) => setNewColorCode(e.target.value)} style={{ minWidth: 180 }} />
+              <select className="input" value={newColorProductId} onChange={(e) => setNewColorProductId(e.target.value)} style={{ minWidth: 200 }}>
+                <option value="">Select Product (for pricing)</option>
+                {products.filter(p => p.status === "ACTIVE").map((product) => (
+                  <option key={product.id} value={product.id}>{product.name} (${product.price}/sq in)</option>
+                ))}
+              </select>
+              <button className="btn primary" type="submit">
+                Add Color
+              </button>
+              <button className="btn" type="button" onClick={refreshVinylColors}>
+                Refresh
+              </button>
+            </form>
+
+            <table className="table" style={{ marginTop: 14 }}>
+              <thead>
+                <tr>
+                  <th>Color</th>
+                  <th>Code</th>
+                  <th>Price/Sq In</th>
+                  <th>Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {vinylColorsLoading ? (
+                  <tr>
+                    <td colSpan={5}>Loading...</td>
+                  </tr>
+                ) : vinylColors.length === 0 ? (
+                  <tr>
+                    <td colSpan={5}>No vinyl colors yet.</td>
+                  </tr>
+                ) : (
+                  vinylColors.map((color) => (
+                    <tr key={color.id} style={{ opacity: color.isActive ? 1 : 0.5 }}>
+                      <td style={{ fontWeight: 900 }}>
+                        <span style={{ 
+                          display: "inline-block", 
+                          width: 16, 
+                          height: 16, 
+                          backgroundColor: color.colorCode, 
+                          border: "1px solid #ccc", 
+                          borderRadius: 3, 
+                          marginRight: 8,
+                          verticalAlign: "middle"
+                        }}></span>
+                        {color.name}
+                      </td>
+                      <td>{color.colorCode}</td>
+                      <td>${color.product?.price ? Number(color.product.price).toFixed(2) : "N/A"}</td>
+                      <td>{color.isActive ? "Active" : "Inactive"}</td>
+                      <td>
+                        <button className="btn danger" type="button" onClick={() => deleteVinylColor(color.id)}>
+                          Delete
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Printed Decal Pricing Section */}
+          <div style={{ marginTop: 20, padding: "16px", background: "rgba(255,255,255,0.02)", borderRadius: "8px" }}>
+            <h3 style={{ marginTop: 0, marginBottom: 16 }}>Printed Decal Pricing</h3>
+            <div style={{ fontSize: "13px", color: "var(--muted)", marginBottom: 12 }}>
+              Set the price per square inch for printed decals.
+            </div>
+            
+            {printedDecalPricingErr && (
+              <div style={{ marginBottom: 10, padding: 10, borderRadius: 12, border: "1px solid var(--red)", color: "var(--red)", fontWeight: 800 }}>
+                {printedDecalPricingErr}
+              </div>
+            )}
+
+            <form onSubmit={onUpdatePrintedDecalPricing} style={{ display: "flex", gap: 10, marginBottom: 14, flexWrap: "wrap", alignItems: "center" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontWeight: 700 }}>Price per sq inch:</span>
+                <span style={{ fontSize: "18px" }}>$</span>
+                <input 
+                  className="input" 
+                  type="number" 
+                  step="0.01" 
+                  min="0" 
+                  value={newPrintedDecalPrice} 
+                  onChange={(e) => setNewPrintedDecalPrice(e.target.value)} 
+                  style={{ width: 100 }}
+                />
+              </div>
+              <button className="btn primary" type="submit">
+                Update Price
+              </button>
+              <button className="btn" type="button" onClick={refreshPrintedDecalPricing}>
+                Refresh
+              </button>
+            </form>
+
+            {printedDecalPricing && !printedDecalPricingLoading && (
+              <div style={{ padding: 12, background: "rgba(0,100,255,0.1)", borderRadius: 8, marginTop: 10 }}>
+                <strong>Current Price:</strong> ${Number(printedDecalPricing.pricePerSqInch).toFixed(2)} per sq inch
+              </div>
+            )}
+          </div>
         </div>
       )}
 

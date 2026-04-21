@@ -51,20 +51,21 @@ async function logAudit(
     return;
   }
 
+  // normalize detailsJson: always store something
+  const safeDetailsJson =
+    detailsJson !== null && detailsJson !== undefined
+      ? detailsJson
+      : details
+      ? { message: details }
+      : {};
+
   await prisma.auditLog.create({
     data: {
       action,
-      targetUserId,
-      initials,
-
-      // Store your readable message + any extra json payload here
-      detailsJson: {
-        message: details || "",
-        ...(detailsJson ?? {}),
-      },
-
-      // relation (correct way)
+      initials: initials ?? null,
       actorUser: { connect: { id: actorId } },
+      ...(targetUserId ? { targetUser: { connect: { id: targetUserId } } } : {}),
+      detailsJson: safeDetailsJson,
     },
   });
 }
@@ -234,12 +235,20 @@ router.post("/", requireAuth, requireAdmin, async (req, res) => {
     },
   });
 
+  // If UI doesn't send initials yet, don't crash. (You can make this strict later.)
+  const initials =
+    String(req.body?.initials || "").trim().toUpperCase() || "SYS";
+
   await logAudit(prisma, req, {
     action: "USER_CREATED",
     targetUserId: created.id,
     details: `Created user ${created.username}`,
-    detailsJson: { username: created.username },
-    initials: "SYS",
+    detailsJson: {
+      username: created.username,
+      role: created.role,
+      displayName: created.displayName ?? null,
+    },
+    initials,
   });
 
   res.json(created);
@@ -261,24 +270,32 @@ router.post("/:id/reset-password", requireAuth, requireAdmin, async (req, res) =
     data: { passwordHash },
   });
 
+  const initials =
+    String(req.body?.initials || "").trim().toUpperCase() || "SYS";
+
   await logAudit(prisma, req, {
     action: "USER_PASSWORD_RESET",
     targetUserId: id,
     details: "Password reset",
     detailsJson: {},
-    initials: "SYS",
+    initials,
   });
 
   res.json({ ok: true });
 });
 
-
 // POST /api/users/:id/delete (admin only) - soft delete (DISABLED)
-router.post("/:id/delete", requireAuth, requireAdmin, async (req, res) => {
+// DELETE /api/users/:id (admin only) - soft delete (DISABLED)
+router.delete("/:id", requireAuth, requireAdmin, async (req, res) => {
   const prisma = req.prisma;
   const id = String(req.params.id);
-  const initials = requireInitials(req, res);
-  if (!initials) return;
+
+  // initials can come from body OR query (DELETE often has no body)
+  const initialsRaw = (req.body?.initials ?? req.query?.initials ?? "");
+  const initials = String(initialsRaw).trim().toUpperCase();
+  if (!/^[A-Z]{2,3}$/.test(initials)) {
+    return res.status(400).json({ error: "Initials must be 2–3 letters" });
+  }
 
   const actorId = getActorId(req);
   if (!actorId) return res.status(401).json({ error: "Invalid auth token" });
@@ -295,10 +312,9 @@ router.post("/:id/delete", requireAuth, requireAdmin, async (req, res) => {
     data: { status: "DISABLED" },
   });
 
-  await logAudit(prisma, {
-    actorUserId: actorId,
-    targetUserId: id,
+  await logAudit(prisma, req, {
     action: "USER_DELETED",
+    targetUserId: id,
     initials,
     details: `Deleted user ${existing.username}`,
     detailsJson: { username: existing.username },
@@ -306,5 +322,6 @@ router.post("/:id/delete", requireAuth, requireAdmin, async (req, res) => {
 
   res.json({ ok: true, user: updated });
 });
+
 
 export default router;

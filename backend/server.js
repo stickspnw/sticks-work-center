@@ -12,19 +12,18 @@ import settingsRouter from "./src/routes/settings.js";
 import usersRouter from "./src/routes/users.js";
 import auditRouter from "./src/routes/audit.js";
 import searchRouter from "./src/routes/search.js";
+import vinylRouter from "./src/routes/vinyl.js";
+import decalFilesRouter from "./src/routes/decal-files.js";
 
 dotenv.config();
 
 const prisma = new PrismaClient();
 const app = express();
-
-
-app.use("/uploads", express.static(path.resolve("uploads")));
-
+app.set("trust proxy", true);
 
 app.use(
   cors({
-    origin:true,
+    origin: true,
     credentials: true,
   })
 );
@@ -38,7 +37,7 @@ app.use((req, _res, next) => {
 });
 
 // Serve uploaded branding assets
-app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
+app.use("/uploads", express.static(path.resolve("uploads")));
 
 app.get("/api/health", (_req, res) => res.json({ ok: true }));
 
@@ -51,8 +50,20 @@ app.use("/api/settings", settingsRouter);
 app.use("/api/users", usersRouter);
 app.use("/api/audit", auditRouter);
 app.use("/api/search", searchRouter);
+app.use("/api/vinyl", vinylRouter);
+app.use("/api/decal-files", decalFilesRouter);
+
+// ---- Serve built frontend (IMPORTANT) ----
+const frontendDist = path.resolve("..", "frontend", "dist");
+app.use(express.static(frontendDist));
+
+// SPA fallback BUT do NOT catch /api or /uploads
+app.get(/^\/(?!api|uploads).*/, (req, res) => {
+  res.sendFile(path.join(frontendDist, "index.html"));
+});
 
 const port = process.env.PORT || 4000;
+
 app.listen(port, () => {
   console.log(`Backend running on http://localhost:${port}`);
 });

@@ -22,16 +22,35 @@ router.get("/", requireAuth, async (req, res) => {
 });
 
 router.post("/", requireAuth, requireRole(["ADMIN"]), async (req, res) => {
-  const parsed = ProductSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: "Invalid input" });
   const prisma = req.prisma;
-  const created = await prisma.product.create({ data: {
-    name: parsed.data.name,
-    price: parsed.data.price,
-    status: parsed.data.status || "ACTIVE"
-  }});
-  res.json({ ...created, price: Number(created.price) });
+
+  try {
+    const name = String(req.body?.name || "").trim();
+    const price = Number(req.body?.price || 0);
+
+    if (!name) return res.status(400).json({ error: "Product name is required" });
+
+    const created = await prisma.product.create({
+      data: {
+        name,
+        price,
+      },
+    });
+
+    return res.json(created);
+  } catch (e) {
+    // Duplicate unique field (name)
+    if (e?.code === "P2002") {
+      return res.status(409).json({
+        error: "That product name already exists. Use a different name or edit the existing product.",
+      });
+    }
+
+    console.error("Create product failed:", e);
+    return res.status(500).json({ error: "Failed to create product" });
+  }
 });
+
 
 router.put("/:id", requireAuth, requireRole(["ADMIN"]), async (req, res) => {
   const parsed = ProductSchema.safeParse(req.body);

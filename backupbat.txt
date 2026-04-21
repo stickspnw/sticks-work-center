@@ -1,0 +1,4 @@
+@echo off
+echo Starting Cloudflare tunnel only...
+cloudflared tunnel run stickswc
+pause
