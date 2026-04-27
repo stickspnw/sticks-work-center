@@ -91,7 +91,8 @@ const DecalConfigurator = () => {
   );
 
   const displayFontSize = baseFontSize * scale;
-  const offsetStroke = Math.max(1, Math.round(offsetSize * 4));
+  // offsetStroke in display pixels: offsetSize inches * (baseFontSize px/inch * scale) * 2 sides
+  const offsetStroke = Math.max(1, offsetSize * baseFontSize * scale * 2);
   const displayedTextWidth = rawTextWidth * scale;
   const textOffsetLeft = (previewWidth - displayedTextWidth) / 2;
   const displayedTextHeight = displayFontSize;

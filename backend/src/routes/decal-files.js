@@ -141,20 +141,13 @@ router.post("/cut-vinyl", (req, res) => {
     // Determine which layer
     const isOffsetLayer = layer === "offset";
 
-    // Single unit dimensions (graphic + bounding box)
-    // Graphic width includes offset padding if offset layer
-    let graphicW, graphicH;
-    if (isOffsetLayer) {
-      // Offset: text + offset on each side
-      graphicW = textWidthIn + offsetIn * 2;
-      graphicH = hIn + offsetIn * 2;
-    } else {
-      graphicW = textWidthIn;
-      graphicH = hIn;
-    }
+    // Both layers use identical bounding box (based on TEXT dimensions only)
+    // so the PDFs are the same size and align perfectly when stacked in the cutter
+    const graphicW = textWidthIn;
+    const graphicH = hIn;
 
     // Bounding box: 1" taller and wider (0.5" each side)
-    const boxW = graphicW + 1; // +1 inch total
+    const boxW = graphicW + 1;
     const boxH = graphicH + 1;
 
     // Nesting: arrange units within 24" material width
@@ -240,10 +233,9 @@ router.post("/cut-vinyl", (req, res) => {
 
       // Draw text outlines
       if (isOffsetLayer) {
-        // Offset layer: one solid piece — draw text as filled shape with thick stroke
-        // This creates a single merged outline (no internal cuts)
-        const textX = (graphicX + offsetIn) * PT;
-        const textY = (graphicY + offsetIn + hIn) * PT; // baseline
+        // Offset layer: same position as text layer, stroke expands outward to create offset
+        const textX = graphicX * PT;
+        const textY = (graphicY + hIn) * PT; // baseline
         const svgPath = textToPathData(otFont, text, fontSize, textX, textY, charSpacingPt);
 
         pdfDoc.save();
