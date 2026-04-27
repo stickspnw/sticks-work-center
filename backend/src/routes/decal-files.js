@@ -202,18 +202,35 @@ router.post("/cut-vinyl", (req, res) => {
       pdfDoc.stroke();
       pdfDoc.restore();
 
-      // Registration squares: 3 x 0.5" squares centered along top of bounding box
-      // Same position on BOTH text and offset files so they align when stacked
-      const regSize = 0.5; // inches
-      const regGap = 0.25; // gap between squares
-      const regGroupW = 3 * regSize + 2 * regGap; // 2.0" total
-      const regStartX = boxX + (boxW - regGroupW) / 2; // centered
-      const regY = boxY + 0.05; // just inside top of box
+      // Weeding box: 0.5" buffer around the actual text (same on both layers for alignment)
+      // For text layer: around textWidthIn x hIn
+      // For offset layer: around (textWidthIn + offsetIn*2) x (hIn + offsetIn*2)
+      // We always base weeding box on the TEXT dimensions so both layers align
+      const weedBuf = 0.5;
+      const weedW = textWidthIn + weedBuf * 2;
+      const weedH = hIn + weedBuf * 2;
+      const weedX = boxX + (boxW - weedW) / 2;
+      const weedY = boxY + (boxH - weedH) / 2;
 
       pdfDoc.save();
       pdfDoc.lineWidth(STROKE_WIDTH);
       pdfDoc.strokeColor("#000000");
-      for (let s = 0; s < 3; s++) {
+      pdfDoc.rect(weedX * PT, weedY * PT, weedW * PT, weedH * PT);
+      pdfDoc.stroke();
+      pdfDoc.restore();
+
+      // Registration squares: 2 squares inside the bounding box (above weeding box)
+      // Both text and offset files use IDENTICAL positions for alignment when stacking
+      const regSize = 0.25; // 0.25" squares
+      const regGap = 0.5;   // gap between them
+      const regGroupW = 2 * regSize + regGap;
+      const regStartX = boxX + (boxW - regGroupW) / 2;
+      const regY = boxY + 0.05; // just inside top edge of bounding box
+
+      pdfDoc.save();
+      pdfDoc.lineWidth(STROKE_WIDTH);
+      pdfDoc.strokeColor("#000000");
+      for (let s = 0; s < 2; s++) {
         const sx = (regStartX + s * (regSize + regGap)) * PT;
         const sy = regY * PT;
         pdfDoc.rect(sx, sy, regSize * PT, regSize * PT);

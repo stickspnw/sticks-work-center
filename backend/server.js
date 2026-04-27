@@ -62,7 +62,7 @@ app.get(/^\/(?!api|uploads).*/, (req, res) => {
   res.sendFile(path.join(frontendDist, "index.html"));
 });
 
-const port = process.env.PORT || 4001;
+const port = process.env.PORT || 4002;
 
 app.listen(port, () => {
   console.log(`Backend running on http://localhost:${port}`);

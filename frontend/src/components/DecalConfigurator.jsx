@@ -116,13 +116,21 @@ const DecalConfigurator = () => {
         alignItems: 'center', justifyContent: 'center', position: 'relative',
         marginBottom: '20px', borderRadius: '5px', overflow: 'hidden', width: '100%', maxWidth: `${previewWidth}px`, margin: '0 auto 20px', boxShadow: '0 4px 12px rgba(0,0,0,0.3)'
       }}>
-        {/* Measurement guides */}
-        <div style={{ position: 'absolute', left: '20px', right: '20px', top: '20px', height: '1px', background: 'rgba(255,255,255,0.75)' }} />
-        <div style={{ position: 'absolute', left: '20px', top: `${textOffsetTop}px`, height: `${displayedTextHeight}px`, width: '1px', background: 'rgba(255,255,255,0.75)' }} />
-        <div style={{ position: 'absolute', top: '10px', left: `${textOffsetLeft + displayedTextWidth / 2}px`, transform: 'translateX(-50%)', color: 'white', fontSize: '12px', background: 'rgba(0,0,0,0.65)', padding: '2px 6px', borderRadius: '4px', whiteSpace: 'nowrap' }}>
+        {/* Width measurement line — spans exactly the text width */}
+        <div style={{ position: 'absolute', left: `${textOffsetLeft}px`, width: `${displayedTextWidth}px`, top: '14px', height: '1px', background: 'rgba(255,255,255,0.8)' }} />
+        {/* End ticks */}
+        <div style={{ position: 'absolute', left: `${textOffsetLeft}px`, top: '9px', width: '1px', height: '11px', background: 'rgba(255,255,255,0.8)' }} />
+        <div style={{ position: 'absolute', left: `${textOffsetLeft + displayedTextWidth}px`, top: '9px', width: '1px', height: '11px', background: 'rgba(255,255,255,0.8)' }} />
+        {/* Width label */}
+        <div style={{ position: 'absolute', top: '2px', left: `${textOffsetLeft + displayedTextWidth / 2}px`, transform: 'translateX(-50%)', color: 'white', fontSize: '11px', background: 'rgba(0,0,0,0.7)', padding: '1px 5px', borderRadius: '3px', whiteSpace: 'nowrap' }}>
           W {estimatedWidth}"
         </div>
-        <div style={{ position: 'absolute', left: '4px', top: `${textOffsetTop + displayedTextHeight / 2}px`, transform: 'translateY(-50%)', color: 'white', fontSize: '12px', background: 'rgba(0,0,0,0.65)', padding: '2px 6px', borderRadius: '4px', whiteSpace: 'nowrap' }}>
+        {/* Height measurement line — spans exactly text height */}
+        <div style={{ position: 'absolute', left: `${textOffsetLeft - 16}px`, top: `${textOffsetTop}px`, height: `${displayedTextHeight}px`, width: '1px', background: 'rgba(255,255,255,0.8)' }} />
+        <div style={{ position: 'absolute', left: `${textOffsetLeft - 21}px`, top: `${textOffsetTop}px`, width: '11px', height: '1px', background: 'rgba(255,255,255,0.8)' }} />
+        <div style={{ position: 'absolute', left: `${textOffsetLeft - 21}px`, top: `${textOffsetTop + displayedTextHeight}px`, width: '11px', height: '1px', background: 'rgba(255,255,255,0.8)' }} />
+        {/* Height label */}
+        <div style={{ position: 'absolute', left: `${textOffsetLeft - 22}px`, top: `${textOffsetTop + displayedTextHeight / 2}px`, transform: 'translate(-100%, -50%)', color: 'white', fontSize: '11px', background: 'rgba(0,0,0,0.7)', padding: '1px 5px', borderRadius: '3px', whiteSpace: 'nowrap' }}>
           H {height}"
         </div>
 
