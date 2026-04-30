@@ -23,10 +23,7 @@ export default function AppShell({ children }) {
         const b = await api.brandingGet();
         if (b && typeof b === "object") {
           const rawLogo = b.logoUrl || b.logoPath || b.logo_path || "";
-const fullLogo =
-  rawLogo && rawLogo.startsWith("/")
-    ? `http://localhost:4000${rawLogo}`
-    : rawLogo;
+const fullLogo = rawLogo || "";
 
 setBranding({
   companyName: b.companyName || "",

@@ -1,0 +1,16 @@
+{
+  "sessionId": "cs_live_a1CbFS3Bsm7tM7JIiJgO4pRK7RQEWaX5xwdS0W6Dt5IBooY8b58Akm54Vz",
+  "createdAt": "2026-04-28T03:54:53.980Z",
+  "customer": {
+    "name": "Jordan Smith",
+    "email": "stickspnw@gmail.com",
+    "phone": "9714649133",
+    "shippingAddress": "1389 NE Alex Way\napt226"
+  },
+  "pricing": {
+    "unitPrice": 0.66,
+    "totalPrice": 0.66,
+    "qty": 1
+  },
+  "description": "Cut Vinyl: Text \"YOUR TEXT\" H=2\""
+}

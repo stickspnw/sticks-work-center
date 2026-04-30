@@ -134,6 +134,7 @@ model Order {
 
   lineItems   OrderLineItem[]
   attachments Attachment[] // <-- keep THIS (Attachment system)
+  proofs      OrderProof[]
   history     OrderHistory[]
 }
 
@@ -153,8 +154,25 @@ model OrderLineItem {
 
   lineTotal Decimal
 
+  // Sized decal fields (optional). When set, this line represents a custom-sized
+  // decal priced as widthIn * heightIn * productPrice (price-per-sq-in).
+  widthIn  Decimal?
+  heightIn Decimal?
+  sqIn     Decimal?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model OrderProof {
+  id                String   @id @default(cuid())
+  orderId           String
+  order             Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  filename          String
+  storedPath        String
+  mimeType          String
+  createdAt         DateTime @default(now())
+  createdByInitials String?
 }
 
 model Attachment {

@@ -1,0 +1,14 @@
+# Secrets
+**/.env
+**/.env.local
+**/.env.*.local
+
+# Runtime data
+backend/decal-orders/pending/
+backend/order-files/
+backend/decal-counter.txt
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.log

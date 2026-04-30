@@ -9,7 +9,7 @@ import InitialsModal from "../components/InitialsModal.jsx";
 async function downloadWorkOrder(orderId, orderNumber) {
   const token = localStorage.getItem("swc_token");
 
-  const res = await fetch(`http://localhost:4000/api/orders/${orderId}/pdf`, {
+  const res = await fetch(`/api/orders/${orderId}/pdf`, {
     headers: { Authorization: `Bearer ${token}` },
   });
 
@@ -38,6 +38,7 @@ export default function WorkInProgress() {
   const [orders, setOrders] = useState([]);
   const [err, setErr] = useState("");
   const [completeId, setCompleteId] = useState(null);
+  const [deleteId, setDeleteId] = useState(null);
   const [attachmentsOrderId, setAttachmentsOrderId] = useState("");
 
 
@@ -64,6 +65,17 @@ export default function WorkInProgress() {
     }
   }
 
+  async function doDelete(initials) {
+    try {
+      await api.deleteOrder(deleteId, initials);
+      setDeleteId(null);
+      await load();
+    } catch (e) {
+      setErr(e.message);
+      setDeleteId(null);
+    }
+  }
+
   return (
     <AppShell>
       <div className="row" style={{ alignItems:"center", marginBottom:12 }}>
@@ -79,7 +91,7 @@ export default function WorkInProgress() {
       <table className="table">
         <thead>
           <tr>
-            <th>Order #</th><th>Customer</th><th>Created</th><th>Actions</th>
+            <th>Order #</th><th>Customer</th><th>Created</th><th style={{ textAlign: "right" }}>Total</th><th>Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -110,6 +122,9 @@ export default function WorkInProgress() {
 
     <td style={{ fontWeight: 800 }}>{o.customerNameSnapshot}</td>
     <td>{new Date(o.createdAt).toLocaleString()}</td>
+    <td style={{ textAlign: "right", fontWeight: 900 }}>
+      ${(o.lineItems || []).reduce((s, li) => s + Number(li.lineTotal || 0), 0).toFixed(2)}
+    </td>
     <td style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
       <button
   className="btn"
@@ -140,19 +155,29 @@ export default function WorkInProgress() {
       >
         Mark as Completed
       </button>
+
+      <button
+        className="btn danger"
+        type="button"
+        onClick={() => {
+          if (window.confirm(`Delete order ${o.orderNumber}? This cannot be undone.`)) {
+            setDeleteId(o.id);
+          }
+        }}
+      >
+        Delete
+      </button>
     </td>
   </tr>
 ))}
 
 {orders.length === 0 && (
   <tr>
-    <td colSpan="4" style={{ color: "var(--muted)" }}>
+    <td colSpan="5" style={{ color: "var(--muted)" }}>
       No WIP orders yet.
     </td>
   </tr>
 )}
-
-          {orders.length===0 && <tr><td colSpan="4" style={{ color:"var(--muted)" }}>No WIP orders yet.</td></tr>}
           
 
         </tbody>
@@ -163,6 +188,13 @@ export default function WorkInProgress() {
         title="Enter Initials to Complete"
         onCancel={()=>setCompleteId(null)}
         onConfirm={complete}
+      />
+
+      <InitialsModal
+        open={!!deleteId}
+        title="Enter Initials to Delete Order"
+        onCancel={()=>setDeleteId(null)}
+        onConfirm={doDelete}
       />
       {attachmentsOrderId && (
   <AttachmentsPanel

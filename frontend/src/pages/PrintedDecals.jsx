@@ -21,6 +21,7 @@ export default function PrintedDecals() {
   const [startPosX, setStartPosX] = useState(0);
   const [startPosY, setStartPosY] = useState(0);
   const previewRef = useRef(null);
+  const printCaptureRef = useRef(null);
 
   useEffect(() => {
     (async () => {
@@ -50,13 +51,69 @@ export default function PrintedDecals() {
     loadPricing();
   }, []);
 
+  // Admin-controlled visibility of bottom action buttons
+  const [pdToggles, setPdToggles] = useState({ printFile: true, printQuote: true });
+  // Storefront pricing (min order + flat-rate shipping)
+  const [storefrontPricing, setStorefrontPricing] = useState({ minOrderPrice: 9.99, shippingFlatFee: 0 });
+  useEffect(() => {
+    (async () => {
+      try {
+        const t = await api.getDecalPageToggles();
+        if (t && t.printedDecals) setPdToggles(t.printedDecals);
+      } catch {}
+      try {
+        const p = await api.getStorefrontPricing();
+        if (p && typeof p === 'object') setStorefrontPricing({
+          minOrderPrice: Number(p.minOrderPrice) || 0,
+          shippingFlatFee: Number(p.shippingFlatFee) || 0,
+        });
+      } catch {}
+    })();
+  }, []);
+
+  // Natural pixel dimensions of the uploaded raster image (PNG/JPG only).
+  // Used to compute effective DPI of the print and warn on low-quality input.
+  const [imageNaturalDims, setImageNaturalDims] = useState(null);
+  useEffect(() => {
+    if (!previewUrl) { setImageNaturalDims(null); return; }
+    if (!(file?.type?.startsWith("image/")) || file?.type === "image/svg+xml") {
+      setImageNaturalDims(null); // vector formats: DPI doesn't apply
+      return;
+    }
+    const img = new Image();
+    img.onload = () => setImageNaturalDims({ w: img.naturalWidth, h: img.naturalHeight });
+    img.onerror = () => setImageNaturalDims(null);
+    img.src = previewUrl;
+  }, [previewUrl, file]);
+
+  // Compute effective print DPI = min(imgPx / printIn) for both axes.
+  // Returns null when no raster image is loaded so we don't show a warning.
+  const effectiveDpi = (() => {
+    if (!imageNaturalDims || !width || !height) return null;
+    const dpiW = imageNaturalDims.w / Number(width || 1);
+    const dpiH = imageNaturalDims.h / Number(height || 1);
+    return Math.floor(Math.min(dpiW, dpiH));
+  })();
+  // Quality bands tuned for sticker/decal print output.
+  const dpiQuality =
+    effectiveDpi == null ? null :
+    effectiveDpi < 100 ? 'poor' :
+    effectiveDpi < 150 ? 'fair' :
+    effectiveDpi < 250 ? 'good' : 'excellent';
+
   const PRICE_PER_SQ_INCH = pricePerSqInch;
   const area = Number((width * height).toFixed(1));
-  const totalPrice = (area * PRICE_PER_SQ_INCH * qty).toFixed(2);
+  const itemsSubtotal = Number((area * PRICE_PER_SQ_INCH * qty).toFixed(2));
+  const minOrderApplied = itemsSubtotal < Number(storefrontPricing.minOrderPrice || 0);
+  const minBumpedSubtotal = Math.max(itemsSubtotal, Number(storefrontPricing.minOrderPrice || 0));
+  const shippingFee = Number(storefrontPricing.shippingFlatFee || 0);
+  const totalPrice = (minBumpedSubtotal + shippingFee).toFixed(2);
 
   const maxMask = 360;
   const maskWidth = shape === "rectangle" ? (width / Math.max(width, height)) * maxMask : maxMask;
   const maskHeight = shape === "rectangle" ? (height / Math.max(width, height)) * maxMask : maxMask;
+  const previewSize = 400;
+  const measurePad = 20;
 
   useEffect(() => {
     if (shape === "circle" || shape === "square") {
@@ -119,7 +176,7 @@ export default function PrintedDecals() {
   const isEps = file?.type === "application/postscript" || file?.type === "application/eps";
 
   return (
-    <div style={{ padding: "20px", maxWidth: "720px", margin: "0 auto", background: "#fff", borderRadius: "10px", color: "#000" }}>
+    <div style={{ padding: '20px' }}>
       {/* Logo */}
       {logoUrl && (
         <div style={{ textAlign: 'center', marginBottom: '10px' }}>
@@ -129,14 +186,12 @@ export default function PrintedDecals() {
 
       {/* Navigation Bar */}
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', marginBottom: '20px', position: 'relative' }}>
-        {/* Login - small, on the left */}
         <Link to="/login" style={{ textDecoration: 'none', position: 'absolute', left: 0 }}>
           <button style={{ padding: '6px 12px', backgroundColor: '#6c757d', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}>
             Log In
           </button>
         </Link>
 
-        {/* Main Menu Buttons - in the center */}
         <div style={{ display: 'flex', gap: '12px' }}>
           <Link to="/decals" style={{ textDecoration: 'none' }}>
             <button style={{ padding: '12px 24px', backgroundColor: '#444', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '16px' }}>
@@ -149,27 +204,61 @@ export default function PrintedDecals() {
         </div>
       </div>
 
-      <p style={{ textAlign: 'center', marginBottom: '20px' }}>Upload art, choose a shape, scale it, and select quantity + size.</p>
+      <p style={{ textAlign: 'center', marginBottom: '20px' }}>Design your own printed decal below.</p>
+
+      <div style={{ display: 'flex', justifyContent: 'center' }}>
+        <div style={{ padding: '20px', maxWidth: '520px', width: '100%', background: '#fff', borderRadius: '10px', color: '#000' }}>
+          <h2 style={{ textAlign: 'center' }}>Printed Decals</h2>
 
       {/* Visual Preview */}
       <div ref={previewRef} style={{ width: "400px", height: "400px", margin: "0 auto 20px", background: '#333', position: 'relative' }}>
-        {/* Measurement guides */}
-        <div style={{ position: 'absolute', left: '20px', right: '20px', top: '50%', height: '1px', background: 'rgba(255,255,255,0.75)', zIndex: 2 }} />
-        <div style={{ position: 'absolute', left: '50%', top: '20px', bottom: '20px', width: '1px', background: 'rgba(255,255,255,0.75)', zIndex: 2 }} />
-        <div style={{ position: 'absolute', top: '10px', left: '50%', transform: 'translateX(-50%)', color: 'white', fontSize: '12px', background: 'rgba(0,0,0,0.65)', padding: '2px 6px', borderRadius: '4px', whiteSpace: 'nowrap', zIndex: 2 }}>
+        {/* Measurement bars (match cut-vinyl preview style) */}
+        <div style={{ position: 'absolute', left: `${(previewSize - maskWidth) / 2}px`, width: `${maskWidth}px`, top: `${(previewSize - maskHeight) / 2 - measurePad}px`, height: '1px', background: 'rgba(255,255,255,0.85)', zIndex: 3 }} />
+        <div style={{ position: 'absolute', left: `${(previewSize - maskWidth) / 2}px`, top: `${(previewSize - maskHeight) / 2 - measurePad - 5}px`, width: '1px', height: '11px', background: 'rgba(255,255,255,0.85)', zIndex: 3 }} />
+        <div style={{ position: 'absolute', left: `${(previewSize + maskWidth) / 2}px`, top: `${(previewSize - maskHeight) / 2 - measurePad - 5}px`, width: '1px', height: '11px', background: 'rgba(255,255,255,0.85)', zIndex: 3 }} />
+        <div style={{ position: 'absolute', top: `${(previewSize - maskHeight) / 2 - measurePad - 16}px`, left: '50%', transform: 'translateX(-50%)', color: 'white', fontSize: '11px', background: 'rgba(0,0,0,0.7)', padding: '1px 5px', borderRadius: '3px', whiteSpace: 'nowrap', zIndex: 3 }}>
           W {width}"
         </div>
-        <div style={{ position: 'absolute', left: '4px', top: '50%', transform: 'translateY(-50%)', color: 'white', fontSize: '12px', background: 'rgba(0,0,0,0.65)', padding: '2px 6px', borderRadius: '4px', whiteSpace: 'nowrap', zIndex: 2 }}>
+
+        <div style={{ position: 'absolute', left: `${(previewSize - maskWidth) / 2 - measurePad}px`, top: `${(previewSize - maskHeight) / 2}px`, height: `${maskHeight}px`, width: '1px', background: 'rgba(255,255,255,0.85)', zIndex: 3 }} />
+        <div style={{ position: 'absolute', left: `${(previewSize - maskWidth) / 2 - measurePad - 5}px`, top: `${(previewSize - maskHeight) / 2}px`, width: '11px', height: '1px', background: 'rgba(255,255,255,0.85)', zIndex: 3 }} />
+        <div style={{ position: 'absolute', left: `${(previewSize - maskWidth) / 2 - measurePad - 5}px`, top: `${(previewSize + maskHeight) / 2}px`, width: '11px', height: '1px', background: 'rgba(255,255,255,0.85)', zIndex: 3 }} />
+        <div style={{ position: 'absolute', left: `${(previewSize - maskWidth) / 2 - measurePad - 6}px`, top: '50%', transform: 'translate(-100%, -50%)', color: 'white', fontSize: '11px', background: 'rgba(0,0,0,0.7)', padding: '1px 5px', borderRadius: '3px', whiteSpace: 'nowrap', zIndex: 3 }}>
           H {height}"
         </div>
-        <div style={{ position: 'absolute', left: '20px', top: '18px', width: '8px', height: '8px', background: 'white', borderRadius: '50%', zIndex: 2 }} />
-        <div style={{ position: 'absolute', left: '18px', top: '20px', width: '8px', height: '8px', background: 'white', borderRadius: '50%', zIndex: 2 }} />
 
         {previewUrl ? (
           (isImage || isSvg || isEps) ? (
-            <div style={{ position: 'absolute', width: `${maskWidth}px`, height: `${maskHeight}px`, top: shape === "rectangle" ? '50%' : '20px', left: shape === "rectangle" ? '50%' : '20px', transform: shape === "rectangle" ? 'translate(-50%, -50%)' : 'none', border: '2px solid black', borderRadius: shape === "circle" ? "50%" : "12px", backgroundColor: backgroundColor === "transparent" ? 'transparent' : backgroundColor, backgroundImage: `url(${previewUrl})`, backgroundSize: `${scale * 100}%`, backgroundPosition: `${positionX}px ${positionY}px`, backgroundRepeat: 'no-repeat', overflow: 'hidden', zIndex: 1, cursor: dragging ? 'grabbing' : 'grab' }} onMouseDown={handleMouseDown} onMouseMove={handleMouseMove} onMouseUp={handleMouseUp} onDragStart={(e) => e.preventDefault()}></div>
+            <div
+              ref={printCaptureRef}
+              style={{
+                position: 'absolute',
+                width: `${maskWidth}px`,
+                height: `${maskHeight}px`,
+                top: '50%',
+                left: '50%',
+                transform: 'translate(-50%, -50%)',
+                border: '2px solid black',
+                borderRadius: shape === "circle" ? "50%" : "12px",
+                backgroundColor: backgroundColor === "transparent" ? 'transparent' : backgroundColor,
+                backgroundImage: `url(${previewUrl})`,
+                backgroundSize: `${scale * 100}%`,
+                backgroundPosition: `${positionX}px ${positionY}px`,
+                backgroundRepeat: 'no-repeat',
+                overflow: 'hidden',
+                zIndex: 1,
+                cursor: dragging ? 'grabbing' : 'grab'
+              }}
+              onMouseDown={handleMouseDown}
+              onMouseMove={handleMouseMove}
+              onMouseUp={handleMouseUp}
+              onDragStart={(e) => e.preventDefault()}
+            />
           ) : isPdf ? (
-              <div style={{ position: 'absolute', width: `${maskWidth}px`, height: `${maskHeight}px`, top: shape === "rectangle" ? '50%' : '20px', left: shape === "rectangle" ? '50%' : '20px', transform: shape === "rectangle" ? 'translate(-50%, -50%)' : 'none', border: '2px solid black', borderRadius: shape === "circle" ? "50%" : "12px", background: 'rgba(255,255,255,0.1)', overflow: 'hidden', zIndex: 1 }}>
+              <div
+                ref={printCaptureRef}
+                style={{ position: 'absolute', width: `${maskWidth}px`, height: `${maskHeight}px`, top: '50%', left: '50%', transform: 'translate(-50%, -50%)', border: '2px solid black', borderRadius: shape === "circle" ? "50%" : "12px", background: 'rgba(255,255,255,0.1)', overflow: 'hidden', zIndex: 1 }}
+              >
               <object data={previewUrl} type="application/pdf" style={{ width: '100%', height: '100%', zIndex: 1 }}>
                 <div style={{ color: "white", padding: "10px", textAlign: "center" }}>
                   PDF preview not available in this browser.
@@ -261,6 +350,43 @@ export default function PrintedDecals() {
         </button>
       </div>
 
+      {/* Image quality / DPI warning */}
+      {dpiQuality && (
+        <div
+          style={{
+            margin: "0 0 12px 0",
+            padding: "12px 14px",
+            borderRadius: 8,
+            border: `1px solid ${dpiQuality === 'poor' ? '#dc3545' : dpiQuality === 'fair' ? '#e0a800' : '#28a745'}`,
+            background: dpiQuality === 'poor' ? '#fff5f5' : dpiQuality === 'fair' ? '#fffaf0' : '#f3fbf6',
+            color: dpiQuality === 'poor' ? '#721c24' : dpiQuality === 'fair' ? '#856404' : '#155724',
+            fontSize: 13,
+            fontWeight: 600,
+          }}
+        >
+          <div style={{ fontWeight: 800, marginBottom: 4 }}>
+            Image quality: {dpiQuality.toUpperCase()} • {effectiveDpi} DPI at {width}" × {height}"
+          </div>
+          {dpiQuality === 'poor' && (
+            <div>Heads up — this image is too low resolution for the requested print size. Expect visible pixelation, blurry edges, and posterized colors. Use a higher-resolution file (≥150 DPI) or print smaller.</div>
+          )}
+          {dpiQuality === 'fair' && (
+            <div>This image is borderline for the requested size. Some pixelation may be visible up close. We recommend ≥150 DPI for clean prints, ≥300 DPI for crisp results.</div>
+          )}
+          {dpiQuality === 'good' && (
+            <div>Solid resolution for this size. Should print cleanly.</div>
+          )}
+          {dpiQuality === 'excellent' && (
+            <div>Excellent resolution for this size — should print crisp.</div>
+          )}
+          {imageNaturalDims && (
+            <div style={{ marginTop: 4, fontWeight: 500, color: '#555' }}>
+              Source image: {imageNaturalDims.w}×{imageNaturalDims.h} px
+            </div>
+          )}
+        </div>
+      )}
+
       <div style={{ background: "#f8f9fd", borderRadius: "10px", padding: "16px", border: "1px solid #e5e9f2" }}>
         <h3 style={{ marginTop: 0 }}>Order Summary</h3>
         <div style={{ display: "grid", gap: "8px", fontSize: "15px" }}>
@@ -269,8 +395,16 @@ export default function PrintedDecals() {
           <div>Size: <strong>{width}" x {height}"</strong></div>
           <div>Area: <strong>{area} sq in</strong></div>
           <div>Qty: <strong>{qty}</strong></div>
-          <div>Price per sq inch: <strong>${PRICE_PER_SQ_INCH.toFixed(2)}</strong></div>
           <div>Price per unit: <strong>${(area * PRICE_PER_SQ_INCH).toFixed(2)}</strong></div>
+          <div>Subtotal: <strong>${itemsSubtotal.toFixed(2)}</strong></div>
+          {minOrderApplied && (
+            <div style={{ color: '#b06000' }}>
+              Order Minimum (${Number(storefrontPricing.minOrderPrice).toFixed(2)}): <strong>+${(minBumpedSubtotal - itemsSubtotal).toFixed(2)}</strong>
+            </div>
+          )}
+          {shippingFee > 0 && (
+            <div>Shipping: <strong>${shippingFee.toFixed(2)}</strong></div>
+          )}
           <div style={{ marginTop: "8px" }}><strong>Total: ${totalPrice}</strong></div>
           <div style={{ fontSize: "13px", color: "#555" }}>Accepted: PNG, JPG, SVG, PDF, EPS</div>
         </div>
@@ -278,13 +412,27 @@ export default function PrintedDecals() {
 
       {/* Generate Print File */}
       <div style={{ marginTop: '15px', display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+        {pdToggles.printFile !== false && (
         <button
           onClick={async () => {
+            // Quality gate: if the source image is too low resolution for the
+            // requested print size, force the user to acknowledge before we
+            // generate the print file.
+            if (dpiQuality === 'poor') {
+              const ok = window.confirm(
+                `Low image quality detected\n\n` +
+                `Effective ${effectiveDpi} DPI at ${width}" × ${height}".\n` +
+                `Expect visible pixelation and soft edges in the printed result.\n\n` +
+                `Continue anyway?`
+              );
+              if (!ok) return;
+            }
             try {
               let snapshotData = null;
               if (previewRef.current) {
                 const h2c = await import('html2canvas').then(m => m.default || m);
-                const canvas = await h2c(previewRef.current, { backgroundColor: null, scale: 2, useCORS: true, logging: false });
+                const nodeToCapture = printCaptureRef.current || previewRef.current;
+                const canvas = await h2c(nodeToCapture, { backgroundColor: null, scale: 3, useCORS: true, logging: false });
                 snapshotData = canvas.toDataURL('image/png');
               }
               await api.generatePrintedDecalFile({
@@ -299,13 +447,15 @@ export default function PrintedDecals() {
         >
           Print File (PDF)
         </button>
+        )}
+        {pdToggles.printQuote !== false && (
         <button
           onClick={async () => {
             try {
               let previewImage = null;
               if (previewRef.current) {
                 const h2c = await import('html2canvas').then(m => m.default || m);
-                const canvas = await h2c(previewRef.current, { backgroundColor: '#333333', scale: 2, useCORS: true, logging: false });
+                const canvas = await h2c(previewRef.current, { backgroundColor: '#333333', scale: 3, useCORS: true, logging: false });
                 previewImage = canvas.toDataURL('image/png');
               }
               await api.generateQuote({
@@ -320,6 +470,9 @@ export default function PrintedDecals() {
         >
           Print Quote
         </button>
+        )}
+      </div>
+        </div>
       </div>
     </div>
   );

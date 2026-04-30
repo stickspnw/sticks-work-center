@@ -1,0 +1,16 @@
+{
+  "sessionId": "cs_live_a1YehJPuR2Jgyon3NRn9l3mFmpDmwQZIbB8dEaIn4rTqqHVzufXyOGU0LC",
+  "createdAt": "2026-04-28T04:14:25.469Z",
+  "customer": {
+    "name": "Jordan Smith",
+    "email": "stickspnw@gmail.com",
+    "phone": "9714649133",
+    "shippingAddress": "1389 NE Alex Way\napt226"
+  },
+  "pricing": {
+    "unitPrice": 4.35,
+    "totalPrice": 4.35,
+    "qty": 1
+  },
+  "description": "Cut Vinyl: Logo decal H=4.5\""
+}

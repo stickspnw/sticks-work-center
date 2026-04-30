@@ -69,6 +69,7 @@ export default function Admin() {
   const [vinylColors, setVinylColors] = useState([]);
   const [vinylColorsLoading, setVinylColorsLoading] = useState(true);
   const [vinylColorsErr, setVinylColorsErr] = useState("");
+  const [showInactiveVinylColors, setShowInactiveVinylColors] = useState(true);
   const [newColorName, setNewColorName] = useState("");
   const [newColorCode, setNewColorCode] = useState("");
   const [newColorProductId, setNewColorProductId] = useState("");
@@ -80,6 +81,34 @@ export default function Admin() {
   const [printedDecalPricingLoading, setPrintedDecalPricingLoading] = useState(true);
   const [printedDecalPricingErr, setPrintedDecalPricingErr] = useState("");
   const [newPrintedDecalPrice, setNewPrintedDecalPrice] = useState("");
+
+  // -----------------------
+  // Transfer Tape Pricing
+  // -----------------------
+  const [transferTapePrice, setTransferTapePrice] = useState("0.05");
+  const [transferTapePriceLoading, setTransferTapePriceLoading] = useState(true);
+  const [transferTapePriceErr, setTransferTapePriceErr] = useState("");
+  const [newTransferTapePrice, setNewTransferTapePrice] = useState("");
+
+  // -----------------------
+  // Decal page button toggles
+  // -----------------------
+  const [pageButtonToggles, setPageButtonToggles] = useState({
+    cutVinyl: { textFile: true, strokeFile: true, build: true, payNow: true, printQuote: true },
+    printedDecals: { printFile: true, printQuote: true },
+  });
+  const [pageButtonsLoading, setPageButtonsLoading] = useState(true);
+  const [pageButtonsErr, setPageButtonsErr] = useState("");
+  const [pageButtonsSaving, setPageButtonsSaving] = useState(false);
+
+  // -----------------------
+  // Storefront pricing (min order + flat-rate shipping)
+  // -----------------------
+  const [storefrontPricing, setStorefrontPricing] = useState({ minOrderPrice: 9.99, shippingFlatFee: 0 });
+  const [storefrontPricingLoading, setStorefrontPricingLoading] = useState(true);
+  const [storefrontPricingErr, setStorefrontPricingErr] = useState("");
+  const [storefrontMinDraft, setStorefrontMinDraft] = useState("9.99");
+  const [storefrontShipDraft, setStorefrontShipDraft] = useState("0");
 
   async function refreshProducts() {
     setProductsErr("");
@@ -159,12 +188,24 @@ export default function Admin() {
     setVinylColorsErr("");
     setVinylColorsLoading(true);
     try {
-      const data = await api.vinylColors();
+      const data = await api.vinylColors(showInactiveVinylColors);
       setVinylColors(Array.isArray(data) ? data : []);
     } catch (e) {
       setVinylColorsErr(e.message || "Failed to load vinyl colors");
     } finally {
       setVinylColorsLoading(false);
+    }
+  }
+
+  async function toggleVinylColorVisibility(color) {
+    if (!isAdmin) return;
+    setVinylColorsErr("");
+    try {
+      await api.updateVinylColor(color.id, { isActive: !color.isActive });
+      await refreshVinylColors();
+      await refreshAudit(auditTake);
+    } catch (e) {
+      setVinylColorsErr(e.message || "Failed to update color visibility");
     }
   }
 
@@ -183,6 +224,93 @@ export default function Admin() {
     }
   }
 
+  async function refreshPageButtonToggles() {
+    setPageButtonsErr("");
+    setPageButtonsLoading(true);
+    try {
+      const data = await api.getDecalPageToggles();
+      if (data && typeof data === "object") setPageButtonToggles(data);
+    } catch (e) {
+      setPageButtonsErr(e.message || "Failed to load page button toggles");
+    } finally {
+      setPageButtonsLoading(false);
+    }
+  }
+
+  async function savePageButtonToggles(next) {
+    if (!isAdmin) return;
+    setPageButtonsErr("");
+    setPageButtonsSaving(true);
+    // Optimistic update
+    setPageButtonToggles(next);
+    try {
+      const saved = await api.setDecalPageToggles(next);
+      if (saved && typeof saved === "object") setPageButtonToggles(saved);
+    } catch (e) {
+      setPageButtonsErr(e.message || "Failed to save toggles");
+      // Reload to recover from failure
+      refreshPageButtonToggles();
+    } finally {
+      setPageButtonsSaving(false);
+    }
+  }
+
+  async function refreshStorefrontPricing() {
+    setStorefrontPricingErr("");
+    setStorefrontPricingLoading(true);
+    try {
+      const data = await api.getStorefrontPricing();
+      const next = {
+        minOrderPrice: Number(data?.minOrderPrice) || 0,
+        shippingFlatFee: Number(data?.shippingFlatFee) || 0,
+      };
+      setStorefrontPricing(next);
+      setStorefrontMinDraft(next.minOrderPrice.toFixed(2));
+      setStorefrontShipDraft(next.shippingFlatFee.toFixed(2));
+    } catch (e) {
+      setStorefrontPricingErr(e.message || "Failed to load storefront pricing");
+    } finally {
+      setStorefrontPricingLoading(false);
+    }
+  }
+
+  async function saveStorefrontPricing(e) {
+    if (e?.preventDefault) e.preventDefault();
+    if (!isAdmin) return;
+    setStorefrontPricingErr("");
+    try {
+      const next = {
+        minOrderPrice: Math.max(0, Number(storefrontMinDraft) || 0),
+        shippingFlatFee: Math.max(0, Number(storefrontShipDraft) || 0),
+      };
+      const saved = await api.setStorefrontPricing(next);
+      const merged = {
+        minOrderPrice: Number(saved?.minOrderPrice) || 0,
+        shippingFlatFee: Number(saved?.shippingFlatFee) || 0,
+      };
+      setStorefrontPricing(merged);
+      setStorefrontMinDraft(merged.minOrderPrice.toFixed(2));
+      setStorefrontShipDraft(merged.shippingFlatFee.toFixed(2));
+    } catch (e2) {
+      setStorefrontPricingErr(e2.message || "Failed to save storefront pricing");
+    }
+  }
+
+  async function refreshTransferTapePrice() {
+    if (!isAdmin) return;
+    setTransferTapePriceErr("");
+    setTransferTapePriceLoading(true);
+    try {
+      const data = await api.getTransferTapePrice();
+      setTransferTapePrice(data.pricePerSqFt || "0.05");
+      setNewTransferTapePrice(data.pricePerSqFt || "0.05");
+    } catch (e) {
+      setTransferTapePriceErr(e.message || "Failed to load transfer tape pricing");
+    } finally {
+      setTransferTapePriceLoading(false);
+    }
+  }
+
   useEffect(() => {
     refreshProducts();
     refreshUsers();
@@ -190,8 +318,18 @@ export default function Admin() {
     refreshBranding();
     refreshVinylColors();
     refreshPrintedDecalPricing();
+    refreshTransferTapePrice();
+    refreshPageButtonToggles();
+    refreshStorefrontPricing();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (section === "vinyl") {
+      refreshVinylColors();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showInactiveVinylColors]);
 
   const activeCount = useMemo(
     () => products.filter((p) => p.status === "ACTIVE").length,
@@ -433,6 +571,7 @@ export default function Admin() {
       ["branding", "Branding"],
       ["exports", "Exports"],
       ["vinyl", "Vinyl Products"],
+      ["pageButtons", "Page Buttons"],
     ];
 
     return (
@@ -451,7 +590,9 @@ export default function Admin() {
                 if (id === "vinyl") {
                   refreshVinylColors();
                   refreshPrintedDecalPricing();
+                  refreshStorefrontPricing();
                 }
+                if (id === "pageButtons") refreshPageButtonToggles();
               }}
             >
               {label}
@@ -1042,6 +1183,14 @@ export default function Admin() {
               <button className="btn" type="button" onClick={refreshVinylColors}>
                 Refresh
               </button>
+              <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontWeight: 700 }}>
+                <input
+                  type="checkbox"
+                  checked={showInactiveVinylColors}
+                  onChange={(e) => setShowInactiveVinylColors(e.target.checked)}
+                />
+                Show Inactive
+              </label>
             </form>
 
             <table className="table" style={{ marginTop: 14 }}>
@@ -1083,8 +1232,11 @@ export default function Admin() {
                       <td>${color.product?.price ? Number(color.product.price).toFixed(2) : "N/A"}</td>
                       <td>{color.isActive ? "Active" : "Inactive"}</td>
                       <td>
+                        <button className={`btn ${color.isActive ? "outline" : "primary"}`} type="button" onClick={() => toggleVinylColorVisibility(color)}>
+                          {color.isActive ? "Hide" : "Show"}
+                        </button>
                         <button className="btn danger" type="button" onClick={() => deleteVinylColor(color.id)}>
-                          Delete
+                          Archive
                         </button>
                       </td>
                     </tr>
@@ -1092,6 +1244,100 @@ export default function Admin() {
                 )}
               </tbody>
             </table>
+          </div>
+
+          {/* Storefront Pricing Section (min order + flat-rate shipping) */}
+          <div style={{ marginTop: 20, padding: "16px", background: "rgba(255,255,255,0.02)", borderRadius: "8px" }}>
+            <h3 style={{ marginTop: 0, marginBottom: 16 }}>Storefront Pricing</h3>
+            <div style={{ fontSize: "13px", color: "var(--muted)", marginBottom: 12 }}>
+              Sets the minimum order price and the flat-rate shipping fee charged on every Cut Vinyl / Printed Decal order.
+              Both apply to Stripe Checkout and the simulated checkout fallback.
+            </div>
+            {storefrontPricingErr && (
+              <div style={{ marginBottom: 10, padding: 10, borderRadius: 12, border: "1px solid var(--red)", color: "var(--red)", fontWeight: 800 }}>
+                {storefrontPricingErr}
+              </div>
+            )}
+            <form onSubmit={saveStorefrontPricing} style={{ display: "flex", gap: 14, marginBottom: 14, flexWrap: "wrap", alignItems: "center" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontWeight: 700 }}>Minimum order:</span>
+                <span style={{ fontSize: "18px" }}>$</span>
+                <input
+                  className="input"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={storefrontMinDraft}
+                  onChange={(e) => setStorefrontMinDraft(e.target.value)}
+                  disabled={!isAdmin || storefrontPricingLoading}
+                  style={{ width: 100 }}
+                />
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontWeight: 700 }}>Flat shipping fee:</span>
+                <span style={{ fontSize: "18px" }}>$</span>
+                <input
+                  className="input"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={storefrontShipDraft}
+                  onChange={(e) => setStorefrontShipDraft(e.target.value)}
+                  disabled={!isAdmin || storefrontPricingLoading}
+                  style={{ width: 100 }}
+                />
+              </div>
+              <button className="btn primary" type="submit" disabled={!isAdmin || storefrontPricingLoading}>Save</button>
+              <button className="btn" type="button" onClick={refreshStorefrontPricing}>Refresh</button>
+            </form>
+            {!storefrontPricingLoading && (
+              <div style={{ padding: 12, background: "rgba(0,100,255,0.1)", borderRadius: 8, marginTop: 10 }}>
+                <strong>Current:</strong> ${Number(storefrontPricing.minOrderPrice).toFixed(2)} min order &nbsp;•&nbsp; ${Number(storefrontPricing.shippingFlatFee).toFixed(2)} shipping
+              </div>
+            )}
+          </div>
+
+          {/* Transfer Tape Pricing Section */}
+          <div style={{ marginTop: 20, padding: "16px", background: "rgba(255,255,255,0.02)", borderRadius: "8px" }}>
+            <h3 style={{ marginTop: 0, marginBottom: 16 }}>Transfer Tape Pricing</h3>
+            <div style={{ fontSize: "13px", color: "var(--muted)", marginBottom: 12 }}>
+              Set the cost of transfer tape per square foot (added to all cut vinyl orders).
+            </div>
+            {transferTapePriceErr && (
+              <div style={{ marginBottom: 10, padding: 10, borderRadius: 12, border: "1px solid var(--red)", color: "var(--red)", fontWeight: 800 }}>
+                {transferTapePriceErr}
+              </div>
+            )}
+            <form onSubmit={async (e) => {
+              e.preventDefault();
+              try {
+                await api.updateTransferTapePrice(newTransferTapePrice);
+                await refreshTransferTapePrice();
+              } catch (err) {
+                setTransferTapePriceErr(err.message || "Failed to update");
+              }
+            }} style={{ display: "flex", gap: 10, marginBottom: 14, flexWrap: "wrap", alignItems: "center" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontWeight: 700 }}>Price per sq ft:</span>
+                <span style={{ fontSize: "18px" }}>$</span>
+                <input
+                  className="input"
+                  type="number"
+                  step="0.001"
+                  min="0"
+                  value={newTransferTapePrice}
+                  onChange={(e) => setNewTransferTapePrice(e.target.value)}
+                  style={{ width: 100 }}
+                />
+              </div>
+              <button className="btn primary" type="submit">Update Price</button>
+              <button className="btn" type="button" onClick={refreshTransferTapePrice}>Refresh</button>
+            </form>
+            {!transferTapePriceLoading && (
+              <div style={{ padding: 12, background: "rgba(0,100,255,0.1)", borderRadius: 8, marginTop: 10 }}>
+                <strong>Current Price:</strong> ${Number(transferTapePrice).toFixed(3)} per sq ft
+              </div>
+            )}
           </div>
 
           {/* Printed Decal Pricing Section */}
@@ -1135,6 +1381,99 @@ export default function Admin() {
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {/* PAGE BUTTONS */}
+      {section === "pageButtons" && (
+        <div className="card" style={{ marginTop: 12 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div>
+              <div className="h2">Page Buttons</div>
+              <div style={{ color: "var(--muted)", fontWeight: 700 }}>
+                Show or hide the action buttons at the bottom of Cut Vinyl and Printed Decals.
+              </div>
+            </div>
+            <button className="btn" type="button" onClick={refreshPageButtonToggles}>
+              Refresh
+            </button>
+          </div>
+
+          {pageButtonsErr && (
+            <div style={{ marginTop: 12, padding: 10, borderRadius: 12, border: "1px solid var(--red)", color: "var(--red)", fontWeight: 800 }}>
+              {pageButtonsErr}
+            </div>
+          )}
+
+          {!isAdmin && (
+            <div style={{ marginTop: 12, padding: 10, borderRadius: 12, border: "1px solid var(--muted)", color: "var(--muted)", fontWeight: 700 }}>
+              Admin role required to change these settings.
+            </div>
+          )}
+
+          {pageButtonsLoading ? (
+            <div style={{ marginTop: 14 }}>Loading...</div>
+          ) : (
+            <>
+              {(() => {
+                const renderToggle = (page, key, label) => {
+                  const checked = pageButtonToggles[page]?.[key] !== false;
+                  return (
+                    <label
+                      key={`${page}.${key}`}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        gap: 12,
+                        padding: "10px 14px",
+                        background: "rgba(255,255,255,0.03)",
+                        borderRadius: 8,
+                        marginBottom: 8,
+                        fontWeight: 700,
+                      }}
+                    >
+                      <span>{label}</span>
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        disabled={!isAdmin || pageButtonsSaving}
+                        onChange={(e) => {
+                          const next = {
+                            ...pageButtonToggles,
+                            [page]: { ...pageButtonToggles[page], [key]: e.target.checked },
+                          };
+                          savePageButtonToggles(next);
+                        }}
+                        style={{ width: 20, height: 20, cursor: isAdmin ? "pointer" : "not-allowed" }}
+                      />
+                    </label>
+                  );
+                };
+
+                return (
+                  <div style={{ marginTop: 14, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+                    <div style={{ padding: 14, background: "rgba(255,255,255,0.02)", borderRadius: 10 }}>
+                      <h3 style={{ marginTop: 0 }}>Cut Vinyl</h3>
+                      {renderToggle("cutVinyl", "textFile", "TEXT FILE button")}
+                      {renderToggle("cutVinyl", "strokeFile", "STROKE FILE button (when stroke enabled)")}
+                      {renderToggle("cutVinyl", "build", "Build for Cut Vinyl button")}
+                      {renderToggle("cutVinyl", "payNow", "Pay Now button")}
+                      {renderToggle("cutVinyl", "printQuote", "Print Quote button")}
+                    </div>
+                    <div style={{ padding: 14, background: "rgba(255,255,255,0.02)", borderRadius: 10 }}>
+                      <h3 style={{ marginTop: 0 }}>Printed Decals</h3>
+                      {renderToggle("printedDecals", "printFile", "Print File (PDF) button")}
+                      {renderToggle("printedDecals", "printQuote", "Print Quote button")}
+                    </div>
+                  </div>
+                );
+              })()}
+              {pageButtonsSaving && (
+                <div style={{ marginTop: 10, color: "var(--muted)", fontWeight: 700 }}>Saving...</div>
+              )}
+            </>
+          )}
         </div>
       )}
 

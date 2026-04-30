@@ -10,7 +10,7 @@ async function downloadWorkOrder(orderId, orderNumber) {
     return;
   }
 
-  const res = await fetch(`http://localhost:4000/api/orders/${orderId}/pdf`, {
+  const res = await fetch(`/api/orders/${orderId}/pdf`, {
     method: "GET",
     headers: { Authorization: `Bearer ${token}` },
   });

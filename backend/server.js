@@ -14,6 +14,8 @@ import auditRouter from "./src/routes/audit.js";
 import searchRouter from "./src/routes/search.js";
 import vinylRouter from "./src/routes/vinyl.js";
 import decalFilesRouter from "./src/routes/decal-files.js";
+import decalOrdersRouter from "./src/routes/decal-orders.js";
+import logoRouter from "./src/routes/logo.js";
 
 dotenv.config();
 
@@ -52,6 +54,8 @@ app.use("/api/audit", auditRouter);
 app.use("/api/search", searchRouter);
 app.use("/api/vinyl", vinylRouter);
 app.use("/api/decal-files", decalFilesRouter);
+app.use("/api/decal-orders", decalOrdersRouter);
+app.use("/api/logo", logoRouter);
 
 // ---- Serve built frontend (IMPORTANT) ----
 const frontendDist = path.resolve("..", "frontend", "dist");

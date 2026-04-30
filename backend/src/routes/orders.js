@@ -3,8 +3,38 @@ import { z } from "zod";
 import { requireAuth } from "../middleware/auth.js";
 import { nextOrderNumber } from "../lib/orderNumber.js";
 import PDFDocument from "pdfkit";
+import multer from "multer";
+import path from "path";
+import fs from "fs";
 
 const router = express.Router();
+
+// Storage root for per-order proof uploads
+const PROOFS_ROOT = path.resolve("order-files");
+if (!fs.existsSync(PROOFS_ROOT)) fs.mkdirSync(PROOFS_ROOT, { recursive: true });
+
+const proofStorage = multer.diskStorage({
+  destination: (req, _file, cb) => {
+    const orderId = req.params.id;
+    const dir = path.join(PROOFS_ROOT, orderId, "proofs");
+    fs.mkdirSync(dir, { recursive: true });
+    cb(null, dir);
+  },
+  filename: (_req, file, cb) => {
+    const safeBase = path.basename(file.originalname).replace(/[^a-zA-Z0-9._-]/g, "_");
+    const stamp = Date.now();
+    cb(null, `${stamp}_${safeBase}`);
+  },
+});
+const proofUpload = multer({
+  storage: proofStorage,
+  limits: { fileSize: 15 * 1024 * 1024 }, // 15MB
+  fileFilter: (_req, file, cb) => {
+    const ok = /^image\/(png|jpe?g|webp|gif)$/i.test(file.mimetype);
+    if (!ok) return cb(new Error("Only image uploads are allowed (PNG, JPG, WebP, GIF)"));
+    cb(null, true);
+  },
+});
 function csvEscape(v) {
   const s = v === null || v === undefined ? "" : String(v);
   if (/[,"\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
@@ -48,7 +78,7 @@ router.get("/", requireAuth, async (req, res) => {
   const orders = await prisma.order.findMany({
     where,
     orderBy: { createdAt: "desc" },
-    include: { customer: true },
+    include: { customer: true, lineItems: true },
   });
   res.json(orders);
 });
@@ -478,6 +508,8 @@ router.patch("/:id/delete", requireAuth, async (req, res) => {
       productId: z.string().min(1),
       qty: z.number().int().min(1),
       overrideUnitPrice: z.number().nonnegative().optional().nullable(),
+      widthIn: z.number().positive().optional().nullable(),
+      heightIn: z.number().positive().optional().nullable(),
     })).optional(),
 
     lineItems: z.array(z.object({
@@ -485,6 +517,8 @@ router.patch("/:id/delete", requireAuth, async (req, res) => {
       qty: z.number().int().min(1),
       overridePrice: z.number().nonnegative().optional().nullable(),
       overrideReason: z.string().optional().nullable(),
+      widthIn: z.number().positive().optional().nullable(),
+      heightIn: z.number().positive().optional().nullable(),
     })).optional(),
   });
 
@@ -500,12 +534,16 @@ router.patch("/:id/delete", requireAuth, async (req, res) => {
       productId: i.productId,
       qty: i.qty,
       overrideUnitPrice: i.overrideUnitPrice ?? null,
+      widthIn: i.widthIn ?? null,
+      heightIn: i.heightIn ?? null,
     }))
     .concat(
       (parsed.data.lineItems || []).map(li => ({
         productId: li.productId,
         qty: li.qty,
         overrideUnitPrice: li.overridePrice ?? null,
+        widthIn: li.widthIn ?? null,
+        heightIn: li.heightIn ?? null,
       }))
     );
 
@@ -524,19 +562,42 @@ router.patch("/:id/delete", requireAuth, async (req, res) => {
 
       const catalog = Number(p.price);
       const overridden = i.overrideUnitPrice !== null && i.overrideUnitPrice !== undefined;
-      const unitFinal = overridden ? Number(i.overrideUnitPrice) : catalog;
       const qty = Number(i.qty);
-      const lineTotal = qty * unitFinal;
+
+      // Sized-decal: when widthIn and heightIn are provided, treat product price
+      // as $/sq-in and compute the unit price as widthIn * heightIn * price.
+      const isSized = i.widthIn != null && i.heightIn != null;
+      const widthIn = isSized ? Number(i.widthIn) : null;
+      const heightIn = isSized ? Number(i.heightIn) : null;
+      const sqIn = isSized ? Number((widthIn * heightIn).toFixed(4)) : null;
+
+      let unitFinal;
+      if (overridden) {
+        unitFinal = Number(i.overrideUnitPrice);
+      } else if (isSized) {
+        unitFinal = Number((sqIn * catalog).toFixed(2));
+      } else {
+        unitFinal = catalog;
+      }
+
+      const lineTotal = Number((qty * unitFinal).toFixed(2));
+
+      const nameSnapshot = isSized
+        ? `${p.name} — Sized Decal ${widthIn}" x ${heightIn}" (${sqIn} sq in)`
+        : p.name;
 
       createLineItems.push({
         productId: p.id,
-        productNameSnapshot: p.name,
+        productNameSnapshot: nameSnapshot,
         catalogUnitPriceSnapshot: catalog,
         unitPriceFinal: unitFinal,
         qty,
         lineTotal,
         isPriceOverridden: overridden,
         overrideReason: null, // keep history/internal; PDF won't show reasons anyway
+        widthIn,
+        heightIn,
+        sqIn,
       });
     }
   }
@@ -898,6 +959,88 @@ router.post("/:id/attachments/:attachmentId/archive", requireAuth, async (req, r
   res.json(updated);
 });
 
+// ----- Proof uploads (image files saved to disk per-order) -----
+
+// POST /api/orders/:id/proofs  (multipart, field: "file")
+router.post("/:id/proofs", requireAuth, (req, res, next) => {
+  proofUpload.single("file")(req, res, (err) => {
+    if (err) return res.status(400).json({ error: err.message || "Upload failed" });
+    next();
+  });
+}, async (req, res) => {
+  const prisma = req.prisma;
+  const orderId = req.params.id;
+  if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+
+  const order = await prisma.order.findUnique({ where: { id: orderId } });
+  if (!order) return res.status(404).json({ error: "Order not found" });
+
+  const initials = (req.body?.initials || "").toString().trim().toUpperCase() || null;
+
+  const created = await prisma.orderProof.create({
+    data: {
+      orderId,
+      filename: req.file.originalname,
+      storedPath: req.file.path,
+      mimeType: req.file.mimetype,
+      createdByInitials: initials,
+    },
+  });
+
+  await prisma.orderHistory.create({
+    data: {
+      orderId,
+      eventType: "PROOF_UPLOADED",
+      initials,
+      actorUserId: req.user.sub,
+      summary: `Proof uploaded: ${req.file.originalname}`,
+      detailsJson: { proofId: created.id, filename: req.file.originalname },
+    },
+  });
+
+  res.json(created);
+});
+
+// GET /api/orders/:id/proofs  -> list metadata
+router.get("/:id/proofs", requireAuth, async (req, res) => {
+  const prisma = req.prisma;
+  const list = await prisma.orderProof.findMany({
+    where: { orderId: req.params.id },
+    orderBy: { createdAt: "desc" },
+    select: { id: true, filename: true, mimeType: true, createdAt: true, createdByInitials: true },
+  });
+  res.json(list);
+});
+
+// GET /api/orders/:id/proofs/:proofId/file  -> serve image
+router.get("/:id/proofs/:proofId/file", requireAuth, async (req, res) => {
+  const prisma = req.prisma;
+  const proof = await prisma.orderProof.findUnique({ where: { id: req.params.proofId } });
+  if (!proof || proof.orderId !== req.params.id) return res.status(404).json({ error: "Not found" });
+  if (!fs.existsSync(proof.storedPath)) return res.status(404).json({ error: "File missing on disk" });
+  res.setHeader("Content-Type", proof.mimeType);
+  res.sendFile(path.resolve(proof.storedPath));
+});
+
+// DELETE /api/orders/:id/proofs/:proofId
+router.delete("/:id/proofs/:proofId", requireAuth, async (req, res) => {
+  const prisma = req.prisma;
+  const proof = await prisma.orderProof.findUnique({ where: { id: req.params.proofId } });
+  if (!proof || proof.orderId !== req.params.id) return res.status(404).json({ error: "Not found" });
+  try { fs.unlinkSync(proof.storedPath); } catch {}
+  await prisma.orderProof.delete({ where: { id: proof.id } });
+  await prisma.orderHistory.create({
+    data: {
+      orderId: req.params.id,
+      eventType: "PROOF_DELETED",
+      actorUserId: req.user.sub,
+      summary: `Proof deleted: ${proof.filename}`,
+      detailsJson: { proofId: proof.id, filename: proof.filename },
+    },
+  });
+  res.json({ ok: true });
+});
+
 router.get("/:id/pdf", requireAuth, async (req, res) => {
   const prisma = req.prisma;
   const order = await prisma.order.findUnique({
@@ -905,115 +1048,221 @@ router.get("/:id/pdf", requireAuth, async (req, res) => {
     include: {
       lineItems: true,
       attachments: { include: { versions: true } },
+      proofs: { orderBy: { createdAt: "asc" } },
     }
   });
   if (!order) return res.status(404).send("Not found");
 
-  const settings = await prisma.setting.findMany();
-  const settingsMap = Object.fromEntries(settings.map(s => [s.key, s.value]));
-  const brandName = settingsMap.brand_name || "Sticks Work Center";
+  // Branding (matches quote PDF lookup keys: company_name, logo_path)
+  const settings = await prisma.setting.findMany({
+    where: { key: { in: ["company_name", "logo_path", "brand_name"] } },
+  });
+  const settingsMap = Object.fromEntries(settings.map((s) => [s.key, s.value]));
+  const companyName = settingsMap.company_name || settingsMap.brand_name || "";
+  let logoBuffer = null;
+  if (settingsMap.logo_path) {
+    try {
+      const logoPath = path.resolve(String(settingsMap.logo_path).replace(/^\//, ""));
+      if (fs.existsSync(logoPath)) logoBuffer = fs.readFileSync(logoPath);
+    } catch {}
+  }
 
   res.setHeader("Content-Type", "application/pdf");
   res.setHeader("Content-Disposition", `attachment; filename="${order.orderNumber}.pdf"`);
 
-  const doc = new PDFDocument({ margin: 36 });
+  // ---- Match the quote PDF: LETTER size, 50pt margin, manual layout ------
+  const doc = new PDFDocument({ size: "LETTER", margin: 50 });
   doc.pipe(res);
 
-  // Header
-  doc.fontSize(18).text(brandName, { align: "left" });
-  doc.moveDown(0.2);
-  doc.fontSize(14).text("Work Order", { align: "left" });
-  doc.moveDown(0.4);
-  doc.moveTo(36, doc.y).lineTo(576, doc.y).stroke();
-  doc.moveDown(0.6);
-
-  doc.fontSize(12).text(`Order #: ${order.orderNumber}`);
-  doc.text(`Status: ${order.status === "WIP" ? "Work In Progress" : "Completed Works"}`);
-  doc.text(`Created: ${order.createdAt.toLocaleString()}`);
-  if (order.finishedAt) doc.text(`Completed: ${order.finishedAt.toLocaleString()}`);
-  doc.moveDown(0.6);
-
-  // Customer snapshot
-  doc.fontSize(12).text("Customer", { underline: true });
-  doc.moveDown(0.2);
-  doc.fontSize(11).text(`Name: ${order.customerNameSnapshot}`);
-  if (order.customerPhoneSnapshot) doc.text(`Phone: ${order.customerPhoneSnapshot}`);
-  if (order.customerEmailSnapshot) doc.text(`Email: ${order.customerEmailSnapshot}`);
-  doc.text("Shipping Address:");
-  doc.text(order.customerShippingAddressSnapshot);
-  doc.moveDown(0.6);
-
-   // Products / Charges (NO override indicators on PDF)
-  doc.fontSize(12).text("Products / Charges", { underline: true });
-  doc.moveDown(0.2);
-
+  const pageW = 612;
+  const pageH = 792;
+  const margin = 45;
+  const opts = { lineBreak: false };
   const money = (n) => `$${Number(n || 0).toFixed(2)}`;
 
+  // Locate the first embeddable proof so we can show it next to specs on page 1
+  const firstProof = (Array.isArray(order.proofs) ? order.proofs : []).find(
+    (p) => p && /^image\/(png|jpe?g)$/i.test(p.mimeType) && fs.existsSync(p.storedPath)
+  );
+
+  let y = margin;
+
+  // ---- HEADER: logo left, title + order# right ----
+  if (logoBuffer) {
+    try {
+      doc.image(logoBuffer, margin, y, { fit: [160, 55] });
+    } catch {}
+  }
+  const hdrX = logoBuffer ? 215 : margin;
+  doc.fontSize(22).font("Helvetica-Bold").fillColor("#1a1a1a");
+  doc.text("WORK ORDER", hdrX, y, opts);
+  doc.fontSize(11).font("Helvetica").fillColor("#666666");
+  doc.text(`ORDER #${order.orderNumber}`, hdrX, y + 26, opts);
+  if (companyName) {
+    doc.fontSize(10).fillColor("#444444");
+    doc.text(companyName, hdrX, y + 42, opts);
+  }
+  doc.fontSize(9).fillColor("#999999");
+  const created = new Date(order.createdAt).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+  doc.text(`Created: ${created}`, hdrX, y + 56, opts);
+
+  // Status pill on the far right
+  const status = order.status === "WIP" ? "Work In Progress" : (order.status === "COMPLETED" ? "Completed" : String(order.status || ""));
+  doc.fontSize(9).fillColor("#1a1a1a");
+  doc.text(`Status: ${status}`, pageW - margin - 200, y + 56, { ...opts, width: 200, align: "right" });
+
+  y += 70;
+
+  // Divider
+  doc.moveTo(margin, y).lineTo(pageW - margin, y).strokeColor("#cccccc").lineWidth(1).stroke();
+  y += 12;
+
+  // ---- CUSTOMER block (full width) ----
+  doc.fontSize(10).font("Helvetica-Bold").fillColor("#1a1a1a");
+  doc.text("CUSTOMER", margin, y, opts);
+  y += 14;
+  doc.fontSize(10).font("Helvetica").fillColor("#222");
+  doc.text(`Name: ${order.customerNameSnapshot || "—"}`, margin, y, opts); y += 13;
+  if (order.customerPhoneSnapshot) { doc.text(`Phone: ${order.customerPhoneSnapshot}`, margin, y, opts); y += 13; }
+  if (order.customerEmailSnapshot) { doc.text(`Email: ${order.customerEmailSnapshot}`, margin, y, opts); y += 13; }
+  if (order.customerShippingAddressSnapshot) {
+    doc.text(`Ship to: ${order.customerShippingAddressSnapshot}`, margin, y, { ...opts, width: pageW - margin * 2 });
+    y += 14;
+  }
+  y += 6;
+
+  // Divider before two-column body
+  doc.moveTo(margin, y).lineTo(pageW - margin, y).strokeColor("#cccccc").lineWidth(0.5).stroke();
+  y += 12;
+
+  // ---- TWO-COLUMN BODY ----
+  // Left: items table   |   Right: first proof image (if any)
+  const leftColX = margin;
+  const leftColW = firstProof ? 310 : (pageW - margin * 2);
+  const rightColX = leftColX + leftColW + 20;
+  const rightColW = pageW - rightColX - margin;
+  const bodyStartY = y;
+
+  // Items header
+  doc.fontSize(10).font("Helvetica-Bold").fillColor("#777");
+  doc.text("ITEM", leftColX, y, { ...opts, width: 165 });
+  doc.text("QTY", leftColX + 170, y, { ...opts, width: 30, align: "right" });
+  doc.text("UNIT", leftColX + 205, y, { ...opts, width: 50, align: "right" });
+  doc.text("TOTAL", leftColX + 260, y, { ...opts, width: 50, align: "right" });
+  y += 14;
+  doc.moveTo(leftColX, y).lineTo(leftColX + leftColW, y).strokeColor("#dddddd").lineWidth(0.5).stroke();
+  y += 6;
+
   let subtotal = 0;
-
+  doc.font("Helvetica").fontSize(10).fillColor("#1a1a1a");
   if (order.lineItems.length === 0) {
-    doc.fontSize(11).text("No products added.");
+    doc.fillColor("#777").text("No products added.", leftColX, y, opts);
+    y += 14;
+    doc.fillColor("#1a1a1a");
   } else {
-    // Column positions
-    const xItem = 36;
-    const xQty = 320;
-    const xUnit = 380;
-    const xTotal = 500;
-
-    // Header row
-    const y0 = doc.y;
-    doc.fontSize(10).font("Helvetica-Bold");
-    doc.text("Item", xItem, y0);
-    doc.text("Qty", xQty, y0, { width: 40, align: "right" });
-    doc.text("Unit", xUnit, y0, { width: 80, align: "right" });
-    doc.text("Total", xTotal, y0, { width: 76, align: "right" });
-
-    doc.moveDown(0.3);
-    doc.moveTo(36, doc.y).lineTo(576, doc.y).stroke();
-    doc.moveDown(0.4);
-
-    doc.font("Helvetica").fontSize(10);
-
     order.lineItems.forEach((li) => {
       const lineTotal = Number(li.lineTotal || 0);
       subtotal += lineTotal;
+      const rowY = y;
+      doc.font("Helvetica").fontSize(10).fillColor("#1a1a1a");
+      doc.text(String(li.productNameSnapshot || ""), leftColX, rowY, { width: 165 });
+      doc.text(String(li.qty || 0), leftColX + 170, rowY, { ...opts, width: 30, align: "right" });
+      doc.text(money(li.unitPriceFinal), leftColX + 205, rowY, { ...opts, width: 50, align: "right" });
+      doc.text(money(lineTotal), leftColX + 260, rowY, { ...opts, width: 50, align: "right" });
+      // The item name may wrap; advance y past the tallest column
+      const nameH = doc.heightOfString(String(li.productNameSnapshot || ""), { width: 165 });
+      y = rowY + Math.max(14, nameH + 2);
 
-      const rowY = doc.y;
-
-      // Item name (no override mark)
-      doc.text(String(li.productNameSnapshot || ""), xItem, rowY, { width: 270 });
-
-      // Qty
-      doc.text(String(li.qty || 0), xQty, rowY, { width: 40, align: "right" });
-
-      // Unit price (final, but no explanation)
-      doc.text(money(li.unitPriceFinal), xUnit, rowY, { width: 80, align: "right" });
-
-      // Line total
-      doc.text(money(lineTotal), xTotal, rowY, { width: 76, align: "right" });
-
-      doc.moveDown(0.2);
-
-      // Prevent text overlap if item name wrapped
-      if (doc.y < rowY + 14) doc.moveDown(0.6);
+      // Sized line metadata in italics, just under the row
+      if (li.widthIn != null && li.heightIn != null) {
+        const w = Number(li.widthIn);
+        const h = Number(li.heightIn);
+        const sq = Number(li.sqIn || (w * h));
+        const ppsi = Number(li.catalogUnitPriceSnapshot || 0);
+        doc.font("Helvetica-Oblique").fontSize(9).fillColor("#666");
+        doc.text(`Sized: ${w}" x ${h}"  •  ${sq.toFixed(2)} sq in  •  ${money(ppsi)}/sq in`, leftColX + 6, y, { ...opts, width: leftColW - 6 });
+        y += 12;
+        doc.font("Helvetica").fontSize(10).fillColor("#1a1a1a");
+      }
+      y += 4;
     });
-
-    doc.moveDown(0.3);
-    doc.save();
-doc.strokeColor("#b00020").lineWidth(2);
-doc.moveTo(36, doc.y).lineTo(576, doc.y).stroke();
-doc.restore();
-
-    doc.moveDown(0.4);
-
-    doc.font("Helvetica-Bold").fontSize(11);
-    doc.text(`Subtotal: ${money(subtotal)}`, { align: "right" });
-    doc.text(`Total: ${money(subtotal)}`, { align: "right" });
-    doc.font("Helvetica").fontSize(11);
   }
 
+  // ---- Right column: first proof image (clipped to right column) ----
+  if (firstProof) {
+    try {
+      const previewFitHeight = 260;
+      doc.image(firstProof.storedPath, rightColX, bodyStartY, { fit: [rightColW, previewFitHeight] });
+      doc.fontSize(8).font("Helvetica").fillColor("#888");
+      doc.text(firstProof.filename, rightColX, bodyStartY + previewFitHeight + 4, { ...opts, width: rightColW, align: "center" });
+    } catch (e) {
+      console.warn("Failed to embed first proof image:", e?.message || e);
+    }
+  }
 
-  
+  // Make sure we sit below the right-column preview before drawing the total
+  if (firstProof) {
+    const previewBottom = bodyStartY + 260 + 16;
+    if (y < previewBottom) y = previewBottom;
+  }
+  y += 6;
+
+  // Divider before total
+  doc.moveTo(margin, y).lineTo(pageW - margin, y).strokeColor("#cccccc").lineWidth(0.5).stroke();
+  y += 12;
+
+  // ---- TOTAL bar (matches quote PDF) ----
+  doc.rect(margin, y, pageW - margin * 2, 36).fill("#f0f7ff");
+  doc.fontSize(14).font("Helvetica-Bold").fillColor("#1a1a1a");
+  doc.text("TOTAL:", margin + 10, y + 11, opts);
+  doc.text(money(subtotal), margin + 110, y + 11, opts);
+  y += 48;
+
+  // Footer
+  doc.moveTo(margin, y).lineTo(pageW - margin, y).strokeColor("#eeeeee").lineWidth(0.5).stroke();
+  y += 8;
+  doc.fontSize(8).font("Helvetica").fillColor("#aaaaaa");
+  doc.text(`Work order ${order.orderNumber} • Generated ${new Date().toLocaleString()}`, margin, y, { width: pageW - margin * 2, align: "center", lineBreak: false });
+
+  // ---- Additional proofs (skip the first one we already inlined) ----
+  const extraProofs = (Array.isArray(order.proofs) ? order.proofs : []).filter((p) => p !== firstProof);
+  for (const proof of extraProofs) {
+    try {
+      if (!proof || !fs.existsSync(proof.storedPath)) continue;
+      doc.addPage();
+      let py = margin;
+
+      // Mini header so additional pages match style
+      if (logoBuffer) {
+        try { doc.image(logoBuffer, margin, py, { fit: [120, 40] }); } catch {}
+      }
+      doc.fontSize(16).font("Helvetica-Bold").fillColor("#1a1a1a");
+      doc.text("PROOF", logoBuffer ? 180 : margin, py, opts);
+      doc.fontSize(10).font("Helvetica").fillColor("#666");
+      doc.text(`Order #${order.orderNumber}`, logoBuffer ? 180 : margin, py + 22, opts);
+      doc.fillColor("#1a1a1a");
+      py += 56;
+
+      doc.moveTo(margin, py).lineTo(pageW - margin, py).strokeColor("#cccccc").lineWidth(1).stroke();
+      py += 14;
+
+      doc.fontSize(10).font("Helvetica").fillColor("#444");
+      doc.text(proof.filename, margin, py, opts);
+      py += 16;
+
+      if (!/^image\/(png|jpe?g)$/i.test(proof.mimeType)) {
+        doc.fontSize(9).fillColor("#888");
+        doc.text(`(Format ${proof.mimeType} cannot be embedded; see file in job folder)`, margin, py, opts);
+        continue;
+      }
+
+      const maxW = pageW - margin * 2;
+      const maxH = pageH - py - margin;
+      doc.image(proof.storedPath, margin, py, { fit: [maxW, maxH], align: "center" });
+    } catch (e) {
+      console.warn("Failed to embed proof:", proof?.id, e?.message || e);
+    }
+  }
 
   doc.end();
 });

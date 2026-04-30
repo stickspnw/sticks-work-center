@@ -140,6 +140,14 @@ export const api = {
   // -----------------------
   brandingGet: () => request("/settings/branding"),
 
+  // Decal page button toggles (admin-controlled visibility on Cut Vinyl + Printed Decals)
+  getDecalPageToggles: () => request("/settings/decal-page-toggles"),
+  setDecalPageToggles: (toggles) => request("/settings/decal-page-toggles", { method: "PUT", body: toggles }),
+
+  // Storefront pricing (min order price + flat-rate shipping fee)
+  getStorefrontPricing: () => request("/settings/storefront-pricing"),
+  setStorefrontPricing: (payload) => request("/settings/storefront-pricing", { method: "PUT", body: payload }),
+
   brandingSetCompanyName: (companyName, initials) =>
     request("/settings/branding/company-name", {
       method: "POST",
@@ -202,6 +210,27 @@ export const api = {
   completeOrder: (id, initials) => request(`/orders/${id}/complete`, { method: "POST", body: { initials } }),
   deleteOrder: (id, initials) => request(`/orders/${id}/delete`, { method: "PATCH", body: { initials } }),
 
+  // proofs (image uploads stored on disk per order)
+  listProofs: (orderId) => request(`/orders/${orderId}/proofs`),
+  proofFileUrl: (orderId, proofId) => `${API_BASE}/orders/${orderId}/proofs/${proofId}/file`,
+  uploadProof: async (orderId, file, initials) => {
+    const token = getToken();
+    if (!token) throw new Error("Missing login token. Please refresh and log in again.");
+    const fd = new FormData();
+    fd.append("file", file);
+    if (initials) fd.append("initials", initials);
+    const res = await fetch(`${API_BASE}/orders/${orderId}/proofs`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: fd,
+    });
+    const isJson = (res.headers.get("content-type") || "").includes("application/json");
+    const data = isJson ? await res.json() : await res.text();
+    if (!res.ok) throw new Error((data && data.error) || (typeof data === "string" ? data : "Upload failed"));
+    return data;
+  },
+  deleteProof: (orderId, proofId) => request(`/orders/${orderId}/proofs/${proofId}`, { method: "DELETE" }),
+
   // attachments
   listAttachments: (orderId) => request(`/orders/${orderId}/attachments`),
   createAttachment: (orderId, { label, googleUrl, initials, note }) =>
@@ -212,7 +241,8 @@ export const api = {
     request(`/orders/${orderId}/attachments/${attachmentId}/archive`, { method: "POST", body: { initials } }),
 
   // vinyl colors
-  vinylColors: () => request("/vinyl/colors"),
+  vinylColors: (includeInactive = false) =>
+    request(`/vinyl/colors${includeInactive ? "?includeInactive=true" : ""}`),
   createVinylColor: (payload) => request("/vinyl/colors", { method: "POST", body: payload }),
   updateVinylColor: (id, payload) => request(`/vinyl/colors/${id}`, { method: "PUT", body: payload }),
   deleteVinylColor: (id) => request(`/vinyl/colors/${id}`, { method: "DELETE" }),
@@ -227,6 +257,10 @@ export const api = {
   printedDecalPricing: () => request("/vinyl/pricing"),
   updatePrintedDecalPricing: (pricePerSqInch) => request("/vinyl/pricing", { method: "PUT", body: { pricePerSqInch } }),
 
+  // transfer tape pricing
+  getTransferTapePrice: () => request("/vinyl/transfer-tape-price"),
+  updateTransferTapePrice: (pricePerSqFt) => request("/vinyl/transfer-tape-price", { method: "PUT", body: { pricePerSqFt: Number(pricePerSqFt) } }),
+
   // decal file generation
   generateCutVinylFile: async (payload) => {
     const res = await fetch(`${API_BASE}/decal-files/cut-vinyl`, {
@@ -240,6 +274,30 @@ export const api = {
     }
     const blob = await res.blob();
     // Extract filename from Content-Disposition header
+    const disposition = res.headers.get("Content-Disposition") || "";
+    const match = disposition.match(/filename="?([^";\n]+)"?/);
+    const filename = match ? match[1] : "cut-file.pdf";
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(url);
+  },
+
+  generateCutVinylMulti: async (payload) => {
+    const res = await fetch(`${API_BASE}/decal-files/cut-vinyl-multi`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const txt = await res.text().catch(() => "");
+      throw new Error(txt || "Failed to generate combined cut file");
+    }
+    const blob = await res.blob();
     const disposition = res.headers.get("Content-Disposition") || "";
     const match = disposition.match(/filename="?([^";\n]+)"?/);
     const filename = match ? match[1] : "cut-file.pdf";

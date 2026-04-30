@@ -3,8 +3,11 @@ import PDFDocument from "pdfkit";
 import opentype from "opentype.js";
 import fs from "fs";
 import path from "path";
+import { fileURLToPath } from "url";
 
 const router = Router();
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // 1 inch = 72 PDF points
 const PT = 72;
@@ -104,20 +107,355 @@ function textToPathData(font, text, fontSize, x, y, letterSpacing) {
   return path.toPathData();
 }
 
+// ---- Cut file naming helpers ---------------------------------------------
+// Strip only the WC "ORD" prefix; preserve any leading zeros in order numbers.
+function cleanOrderNumberForFilename(orderNumber) {
+  if (orderNumber === null || orderNumber === undefined) return null;
+  const str = String(orderNumber).trim();
+  if (!str) return null;
+  // Drop "ORD" prefix
+  const stripped = str.replace(/^ORD/i, "");
+  return stripped;
+}
+
+// Build a short color code for filenames. Prefers an explicit short code (e.g.
+// "WHT", "BLK", "RED") if one is provided; otherwise derives one from the
+// color's display name.
+function shortColorCodeFor(opts) {
+  const explicit = (opts.vinylShortCode || opts.colorCode || "").toString().trim();
+  if (/^[a-zA-Z0-9]{1,5}$/.test(explicit)) return explicit.toUpperCase();
+  const name = (opts.colorName || "UNK").toString();
+  const safe = name.replace(/[^a-zA-Z0-9]/g, "");
+  if (!safe) return "UNK";
+  return safe.toUpperCase().slice(0, 3);
+}
+
+// Build full filename. If orderNumber is provided, use the new format
+// "{orderNumber} {COLOR}{suffix}.pdf". Otherwise fall back to the legacy
+// "DECAL{n}_{COLOR}_{layer}.pdf" naming used for unsaved/manual downloads.
+function buildCutFilename({
+  orderNumber,
+  vinylShortCode,
+  colorName,
+  suffix = "",
+  legacyPrefix = "Vinyl",
+  legacyDecalNum,
+  legacyLayerName,
+  layerIndex,
+  layerCount,
+}) {
+  const cleanOrder = cleanOrderNumberForFilename(orderNumber);
+  const colorCode = shortColorCodeFor({ vinylShortCode, colorName });
+  if (cleanOrder) {
+    const idx = Number.isFinite(Number(layerIndex)) ? Number(layerIndex) : 1;
+    const total = Number.isFinite(Number(layerCount)) ? Number(layerCount) : 1;
+    return `${cleanOrder} ${colorCode} (${idx}-${total}).pdf`;
+  }
+  // Legacy ad-hoc download filename
+  return `DECAL${legacyDecalNum} ${colorCode}_${legacyLayerName || "text"}.pdf`;
+}
+
+// Where paid cut files are saved on disk (single configurable folder).
+function cutLayerOutputDir(isBackgroundLayer) {
+  return isBackgroundLayer
+    ? path.join(__dirname, "../../cut-back-files")
+    : path.join(__dirname, "../../cut-files");
+}
+
 // Calculate text metrics using opentype.js
 function measureText(font, text, fontSize, letterSpacing) {
   const advanceWidth = font.getAdvanceWidth(text, fontSize, { letterSpacing });
   return advanceWidth;
 }
 
+// Generate a rectangular background cut file (multi-row decal mode).
+// Draws a single rectangle (the entire bg piece) per quantity unit, with
+// the standard bounding/weeding box and registration squares around it.
+async function generateBgRectCutFile(req, res, { widthIn, heightIn, qty, colorName, orderId, orderNumber, vinylShortCode, fileSuffix, layerIndex, layerCount }) {
+  try {
+    if (!Number.isFinite(widthIn) || !Number.isFinite(heightIn) || widthIn <= 0 || heightIn <= 0) {
+      return res.status(400).json({ error: "bgWidthIn and bgHeightIn must be positive numbers" });
+    }
+    const decalNum = orderId ? parseInt(orderId) : nextDecalNumber();
+
+    const graphicW = widthIn;
+    const graphicH = heightIn;
+
+    // Bounding box: 1" taller and wider (0.5" each side)
+    const boxW = graphicW + 1;
+    const boxH = graphicH + 1;
+
+    // Nesting: arrange units within 24" material width
+    const cols = Math.max(1, Math.floor(MATERIAL_WIDTH / boxW));
+    const rows = Math.ceil(qty / cols);
+    const totalW = MATERIAL_WIDTH;
+    const totalH = rows * boxH;
+
+    const pdfDoc = new PDFDocument({ size: [totalW * PT, totalH * PT], margin: 0 });
+    const chunks = [];
+    pdfDoc.on("data", (c) => chunks.push(c));
+    pdfDoc.on("end", () => {
+      const pdfBuffer = Buffer.concat(chunks);
+      const filename = buildCutFilename({
+        orderNumber,
+        vinylShortCode,
+        colorName,
+        suffix: fileSuffix || "BG",
+        legacyDecalNum: decalNum,
+        legacyLayerName: "background",
+        layerIndex,
+        layerCount,
+      });
+      if (orderNumber) {
+        try {
+          const dir = cutLayerOutputDir(true);
+          fs.mkdirSync(dir, { recursive: true });
+          fs.writeFileSync(path.join(dir, filename), pdfBuffer);
+        } catch (e) {
+          console.error("Error saving rect bg cut file:", e);
+        }
+      }
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+      res.send(pdfBuffer);
+    });
+
+    for (let i = 0; i < qty; i++) {
+      const col = i % cols;
+      const row = Math.floor(i / cols);
+      const boxX = col * boxW;
+      const boxY = row * boxH;
+      const graphicX = boxX + (boxW - graphicW) / 2;
+      const graphicY = boxY + (boxH - graphicH) / 2;
+
+      // Bounding box (no fill)
+      pdfDoc.save();
+      pdfDoc.lineWidth(STROKE_WIDTH);
+      pdfDoc.rect(boxX * PT, boxY * PT, boxW * PT, boxH * PT);
+      pdfDoc.strokeColor("#000000");
+      pdfDoc.stroke();
+      pdfDoc.restore();
+
+      // Filled rectangle = the bg piece itself
+      pdfDoc.save();
+      pdfDoc.lineWidth(STROKE_WIDTH);
+      pdfDoc.strokeColor("#000000");
+      pdfDoc.fillColor("#000000");
+      pdfDoc.rect(graphicX * PT, graphicY * PT, graphicW * PT, graphicH * PT);
+      pdfDoc.fillAndStroke();
+      pdfDoc.restore();
+
+      // Registration squares around the graphic
+      const regSize = 0.25;
+      const regPositions = [
+        { x: graphicX - regSize - 0.1, y: graphicY + graphicH / 2 - regSize / 2 },
+        { x: graphicX + graphicW / 2 - regSize / 2, y: graphicY - regSize - 0.1 },
+        { x: graphicX + graphicW + 0.1, y: graphicY + graphicH / 2 - regSize / 2 },
+      ];
+      pdfDoc.save();
+      pdfDoc.lineWidth(STROKE_WIDTH);
+      pdfDoc.strokeColor("#000000");
+      regPositions.forEach((p) => {
+        pdfDoc.rect(p.x * PT, p.y * PT, regSize * PT, regSize * PT);
+        pdfDoc.stroke();
+      });
+      pdfDoc.restore();
+    }
+
+    pdfDoc.end();
+  } catch (err) {
+    console.error("Rect bg cut file error:", err);
+    res.status(500).json({ error: "Failed to generate rectangular background cut file: " + err.message });
+  }
+}
+
+// Generate logo cut file
+async function generateLogoCutFile(req, res, { selectedColor, height, width, qty, layer, orderId, orderNumber, vinylShortCode, fileSuffix, layerIndex, layerCount }) {
+  try {
+    const decalNum = orderId ? parseInt(orderId) : nextDecalNumber();
+    
+    // Convert base64 image to buffer
+    const base64Data = selectedColor.processedImage.replace(/^data:image\/png;base64,/, '');
+    const imageBuffer = Buffer.from(base64Data, 'base64');
+    
+    // Get image dimensions
+    const sharp = require('sharp');
+    const metadata = await sharp(imageBuffer).metadata();
+    const aspectRatio = metadata.width / metadata.height;
+    
+    // Adjust dimensions to maintain aspect ratio
+    let finalWidth = width;
+    let finalHeight = height;
+    
+    if (aspectRatio > 1) {
+      finalHeight = width / aspectRatio;
+    } else {
+      finalWidth = height * aspectRatio;
+    }
+    
+    // Bounding box: 1" taller and wider (0.5" each side)
+    const boxW = finalWidth + 1;
+    const boxH = finalHeight + 1;
+    
+    // Nesting: arrange units within 24" material width
+    const cols = Math.max(1, Math.floor(MATERIAL_WIDTH / boxW));
+    const rows = Math.ceil(qty / cols);
+    const totalW = MATERIAL_WIDTH;
+    const totalH = rows * boxH;
+    
+    // Create PDF
+    const pdfDoc = new PDFDocument({
+      size: [totalW * PT, totalH * PT],
+      margin: 0,
+    });
+    
+    const chunks = [];
+    pdfDoc.on("data", (chunk) => chunks.push(chunk));
+    pdfDoc.on("end", async () => {
+      const pdfBuffer = Buffer.concat(chunks);
+      const layerName = layer === "offset" ? "background" : "text";
+      const filename = buildCutFilename({
+        orderNumber,
+        vinylShortCode,
+        colorName: selectedColor?.hex || "logo",
+        suffix: fileSuffix || (layerName === "background" ? "BG" : ""),
+        legacyDecalNum: decalNum,
+        legacyLayerName: layerName,
+        layerIndex,
+        layerCount,
+      });
+      if (orderNumber) {
+        try {
+          const dir = cutLayerOutputDir(layerName === "background");
+          fs.mkdirSync(dir, { recursive: true });
+          fs.writeFileSync(path.join(dir, filename), pdfBuffer);
+          console.log(`Saved logo cut file for order ${orderNumber}: ${filename}`);
+        } catch (error) {
+          console.error('Error saving logo cut files:', error);
+        }
+      }
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+      res.send(pdfBuffer);
+    });
+    
+    // Draw each unit
+    for (let i = 0; i < qty; i++) {
+      const col = i % cols;
+      const row = Math.floor(i / cols);
+      
+      // Top-left of this unit's bounding box
+      const boxX = col * boxW;
+      const boxY = row * boxH;
+      
+      // Center graphic within box
+      const graphicX = boxX + (boxW - finalWidth) / 2;
+      const graphicY = boxY + (boxH - finalHeight) / 2;
+      
+      // Draw bounding box
+      pdfDoc.save();
+      pdfDoc.lineWidth(STROKE_WIDTH);
+      pdfDoc.rect(boxX * PT, boxY * PT, boxW * PT, boxH * PT);
+      pdfDoc.strokeColor("#000000");
+      pdfDoc.stroke();
+      pdfDoc.restore();
+      
+      // Weeding box
+      const weedBuf = 0.5;
+      const weedW = finalWidth + weedBuf * 2;
+      const weedH = finalHeight + weedBuf * 2;
+      const weedX = boxX + (boxW - weedW) / 2;
+      const weedY = boxY + (boxH - weedH) / 2;
+      
+      pdfDoc.save();
+      pdfDoc.lineWidth(STROKE_WIDTH);
+      pdfDoc.strokeColor("#000000");
+      pdfDoc.rect(weedX * PT, weedY * PT, weedW * PT, weedH * PT);
+      pdfDoc.stroke();
+      pdfDoc.restore();
+      
+      // Registration squares - 3 squares positioned around the graphic
+      const regSize = 0.25;
+      const regPositions = [
+        { x: graphicX - regSize - 0.1, y: graphicY + finalHeight / 2 - regSize / 2 }, // left
+        { x: graphicX + finalWidth / 2 - regSize / 2, y: graphicY - regSize - 0.1 }, // top
+        { x: graphicX + finalWidth + 0.1, y: graphicY + finalHeight / 2 - regSize / 2 } // right
+      ];
+      
+      pdfDoc.save();
+      pdfDoc.lineWidth(STROKE_WIDTH);
+      pdfDoc.strokeColor("#000000");
+      regPositions.forEach(pos => {
+        pdfDoc.rect(pos.x * PT, pos.y * PT, regSize * PT, regSize * PT);
+        pdfDoc.stroke();
+      });
+      pdfDoc.restore();
+      
+      // Draw logo image
+      pdfDoc.save();
+      pdfDoc.image(imageBuffer, graphicX * PT, graphicY * PT, {
+        width: finalWidth * PT,
+        height: finalHeight * PT
+      });
+      pdfDoc.restore();
+    }
+    
+    pdfDoc.end();
+  } catch (error) {
+    console.error('Error generating logo cut file:', error);
+    res.status(500).json({ error: 'Failed to generate logo cut file' });
+  }
+}
+
 // POST /api/decal-files/cut-vinyl
-router.post("/cut-vinyl", (req, res) => {
+router.post("/cut-vinyl", async (req, res) => {
   try {
     const {
       text, height, font, isBold, isItalic, charSpacing,
-      hasOffset, offsetSize, layer, colorName, qty
+      hasOffset, offsetSize, layer, colorName, qty,
+      logoMode, selectedColor, logoWidth, orderId,
+      textWidthIn: requestedTextWidthIn,
+      bgRect, bgWidthIn, bgHeightIn,
+      orderNumber, vinylShortCode, fileSuffix, layerIndex, layerCount,
     } = req.body;
 
+    // Handle logo mode
+    if (logoMode && selectedColor) {
+      await generateLogoCutFile(req, res, {
+        selectedColor,
+        height: parseFloat(height),
+        width: parseFloat(logoWidth || 4),
+        qty: parseInt(qty) || 1,
+        layer,
+        orderId,
+        orderNumber,
+        vinylShortCode,
+        fileSuffix,
+        layerIndex,
+        layerCount,
+      });
+      return;
+    }
+
+    // Handle rectangular background mode (used for multi-row decals where the
+    // background piece wraps the entire stacked content as one rectangle).
+    if (bgRect) {
+      await generateBgRectCutFile(req, res, {
+        widthIn: parseFloat(bgWidthIn),
+        heightIn: parseFloat(bgHeightIn),
+        qty: parseInt(qty) || 1,
+        colorName: colorName || "background",
+        orderId,
+        orderNumber,
+        vinylShortCode,
+        fileSuffix,
+        layerIndex,
+        layerCount,
+      });
+      return;
+    }
+
+    // Original text-based logic
     if (!text || !height) {
       return res.status(400).json({ error: "text and height are required" });
     }
@@ -128,15 +466,18 @@ router.post("/cut-vinyl", (req, res) => {
     const charSpacingPercent = parseFloat(charSpacing) || 0;
     // Convert percent to PDF points: (percent/100) * fontSize
     const charSpacingPt = (charSpacingPercent / 100) * (hIn * PT);
-    const decalNum = nextDecalNumber();
+    const decalNum = orderId ? parseInt(orderId) : nextDecalNumber();
 
     // Load font and convert text to outlines
     const otFont = loadFont(font, isBold, isItalic);
     const fontSize = hIn * PT; // font size in points
 
-    // Measure text width
-    const textWidthPt = measureText(otFont, text, fontSize, charSpacingPt);
-    const textWidthIn = textWidthPt / PT;
+    // Measure text width — prefer frontend-provided value so the cut file
+    // matches the W shown in the preview exactly. Fall back to opentype measurement.
+    const otAdvanceIn = measureText(otFont, text, fontSize, charSpacingPt) / PT;
+    const textWidthIn = (requestedTextWidthIn != null && !isNaN(parseFloat(requestedTextWidthIn)))
+      ? parseFloat(requestedTextWidthIn)
+      : otAdvanceIn;
 
     // Determine which layer
     const isOffsetLayer = layer === "offset";
@@ -164,11 +505,29 @@ router.post("/cut-vinyl", (req, res) => {
 
     const chunks = [];
     pdfDoc.on("data", (chunk) => chunks.push(chunk));
-    pdfDoc.on("end", () => {
+    pdfDoc.on("end", async () => {
       const pdfBuffer = Buffer.concat(chunks);
-      const safeColor = (colorName || "unknown").replace(/[^a-zA-Z0-9]/g, "");
       const layerName = isOffsetLayer ? "offset" : "text";
-      const filename = `DECAL${decalNum}_${safeColor}_${layerName}.pdf`;
+      const filename = buildCutFilename({
+        orderNumber,
+        vinylShortCode,
+        colorName,
+        suffix: fileSuffix || (isOffsetLayer ? "BG" : ""),
+        legacyDecalNum: decalNum,
+        legacyLayerName: layerName,
+        layerIndex,
+        layerCount,
+      });
+      if (orderNumber) {
+        try {
+          const dir = cutLayerOutputDir(isOffsetLayer);
+          fs.mkdirSync(dir, { recursive: true });
+          fs.writeFileSync(path.join(dir, filename), pdfBuffer);
+          console.log(`Saved cut file for order ${orderNumber}: ${filename}`);
+        } catch (error) {
+          console.error('Error saving cut files:', error);
+        }
+      }
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
       res.send(pdfBuffer);
@@ -212,60 +571,58 @@ router.post("/cut-vinyl", (req, res) => {
       pdfDoc.stroke();
       pdfDoc.restore();
 
-      // Registration squares: 2 squares inside the bounding box (above weeding box)
-      // Both text and offset files use IDENTICAL positions for alignment when stacking
-      const regSize = 0.25; // 0.25" squares
-      const regGap = 0.5;   // gap between them
-      const regGroupW = 2 * regSize + regGap;
-      const regStartX = boxX + (boxW - regGroupW) / 2;
-      const regY = boxY + 0.05; // just inside top edge of bounding box
-
+      // Registration squares - 3 squares positioned around the graphic (updated to match frontend)
+      const regSize = 0.25;
+      const regPositions = [
+        { x: graphicX - regSize - 0.1, y: graphicY + hIn / 2 - regSize / 2 }, // left
+        { x: graphicX + textWidthIn / 2 - regSize / 2, y: graphicY - regSize - 0.1 }, // top
+        { x: graphicX + textWidthIn + 0.1, y: graphicY + hIn / 2 - regSize / 2 } // right
+      ];
+      
       pdfDoc.save();
       pdfDoc.lineWidth(STROKE_WIDTH);
       pdfDoc.strokeColor("#000000");
-      for (let s = 0; s < 2; s++) {
-        const sx = (regStartX + s * (regSize + regGap)) * PT;
-        const sy = regY * PT;
-        pdfDoc.rect(sx, sy, regSize * PT, regSize * PT);
+      regPositions.forEach(pos => {
+        pdfDoc.rect(pos.x * PT, pos.y * PT, regSize * PT, regSize * PT);
         pdfDoc.stroke();
-      }
+      });
       pdfDoc.restore();
 
-      // Draw text outlines
-      if (isOffsetLayer) {
-        // Offset layer: same position as text layer, stroke expands outward to create offset
-        const textX = graphicX * PT;
-        const textY = (graphicY + hIn) * PT; // baseline
-        const svgPath = textToPathData(otFont, text, fontSize, textX, textY, charSpacingPt);
+      // Render text path with natural opentype proportions (no distortion).
+      // We scale ONLY along X so the rendered advance width equals textWidthIn
+      // (which matches the W shown in the preview). Y stays natural so glyphs
+      // keep their proper proportions, font size = hIn (EM box).
+      const naturalPath = otFont.getPath(text, 0, 0, fontSize, { letterSpacing: charSpacingPt });
+      const naturalBB = naturalPath.getBoundingBox();
+      const naturalAdvancePt = naturalBB.x2 - naturalBB.x1; // visible advance, in points
+      const targetWidthPt = textWidthIn * PT;
+      const xScale = naturalAdvancePt > 0 ? targetWidthPt / naturalAdvancePt : 1;
+      // Translate so the bbox left edge lands at graphicX, baseline at graphicY+hIn
+      const txPt = graphicX * PT - naturalBB.x1 * xScale;
+      const tyPt = (graphicY + hIn) * PT;
+      const svgPath = naturalPath.toPathData();
 
+      if (isOffsetLayer) {
+        // Background layer: same path filled with thick stroke = total
+        // background piece extends past text by offsetIn inches on each side.
         pdfDoc.save();
-        pdfDoc.lineWidth(Math.max(STROKE_WIDTH, offsetIn * PT * 2));
+        pdfDoc.transform(xScale, 0, 0, 1, txPt, tyPt);
+        // Stroke is uniform because Y scale is 1; X-compensate for accuracy.
+        pdfDoc.lineWidth(offsetIn * PT);
         pdfDoc.strokeColor("#000000");
         pdfDoc.fillColor("#000000");
-
-        // Draw as filled + stroked to create solid offset shape
-        // First fill the text shape
+        pdfDoc.lineJoin("round");
         drawSvgPath(pdfDoc, svgPath);
-        pdfDoc.fill();
-
-        // Then stroke with offset width to expand outward
-        drawSvgPath(pdfDoc, svgPath);
-        pdfDoc.stroke();
-
+        pdfDoc.fillAndStroke();
         pdfDoc.restore();
       } else {
-        // Text layer: outlines only, no fill, 0.01" stroke
-        const textX = graphicX * PT;
-        const textY = (graphicY + hIn) * PT; // baseline
-        const svgPath = textToPathData(otFont, text, fontSize, textX, textY, charSpacingPt);
-
+        // Text layer: outlines only, 0.01" stroke
         pdfDoc.save();
+        pdfDoc.transform(xScale, 0, 0, 1, txPt, tyPt);
         pdfDoc.lineWidth(STROKE_WIDTH);
         pdfDoc.strokeColor("#000000");
-
         drawSvgPath(pdfDoc, svgPath);
         pdfDoc.stroke();
-
         pdfDoc.restore();
       }
     }
@@ -342,8 +699,8 @@ router.post("/printed-decal", (req, res) => {
       const shapeX = boxX + 0.5;
       const shapeY = boxY + 0.5;
 
-      // Draw canvas snapshot (includes background color + image already composited)
-      // The snapshot is the full 400x400 preview; the sticker occupies maskWidth x maskHeight centered in it
+      // Draw uploaded artwork snapshot clipped to the sticker shape.
+      // Frontend now captures only the sticker area for cleaner output quality.
       if (imgBuffer) {
         pdfDoc.save();
         // Clip to sticker shape
@@ -358,20 +715,9 @@ router.post("/printed-decal", (req, res) => {
         }
         pdfDoc.clip();
         try {
-          // The snapshot is 400x400 (or prevW x prevH), the sticker is centered inside it.
-          // We place the snapshot so the sticker area aligns with shapeX/shapeY in PDF space.
-          const previewFullW = 400;
-          const previewFullH = 400;
-          const stickerOffsetX = (previewFullW - prevW) / 2; // px offset within snapshot
-          const stickerOffsetY = (previewFullH - prevH) / 2;
-          const pxToIn = wIn / prevW;
-          const imgOutW = previewFullW * pxToIn;
-          const imgOutH = previewFullH * pxToIn;
-          const imgX = shapeX - stickerOffsetX * pxToIn;
-          const imgY = shapeY - stickerOffsetY * pxToIn;
-          pdfDoc.image(imgBuffer, imgX * PT, imgY * PT, {
-            width: imgOutW * PT,
-            height: imgOutH * PT,
+          pdfDoc.image(imgBuffer, shapeX * PT, shapeY * PT, {
+            width: wIn * PT,
+            height: hIn * PT,
           });
         } catch (e) {
           console.error("Snapshot embed error:", e.message);
@@ -419,6 +765,35 @@ router.post("/printed-decal", (req, res) => {
       pdfDoc.strokeColor("#000000");
       pdfDoc.rect(boxX * PT, boxY * PT, boxW * PT, boxH * PT);
       pdfDoc.stroke();
+      pdfDoc.restore();
+
+      // Weeding box and registration squares for easier production handling
+      const weedBuf = 0.5;
+      const weedW = wIn + weedBuf * 2;
+      const weedH = hIn + weedBuf * 2;
+      const weedX = boxX + (boxW - weedW) / 2;
+      const weedY = boxY + (boxH - weedH) / 2;
+
+      pdfDoc.save();
+      pdfDoc.lineWidth(STROKE_WIDTH);
+      pdfDoc.strokeColor("#000000");
+      pdfDoc.rect(weedX * PT, weedY * PT, weedW * PT, weedH * PT);
+      pdfDoc.stroke();
+      pdfDoc.restore();
+
+      const regSize = 0.25;
+      const regPositions = [
+        { x: shapeX - regSize - 0.1, y: shapeY + hIn / 2 - regSize / 2 },
+        { x: shapeX + wIn / 2 - regSize / 2, y: shapeY - regSize - 0.1 },
+        { x: shapeX + wIn + 0.1, y: shapeY + hIn / 2 - regSize / 2 },
+      ];
+      pdfDoc.save();
+      pdfDoc.lineWidth(STROKE_WIDTH);
+      pdfDoc.strokeColor("#000000");
+      regPositions.forEach((p) => {
+        pdfDoc.rect(p.x * PT, p.y * PT, regSize * PT, regSize * PT);
+        pdfDoc.stroke();
+      });
       pdfDoc.restore();
     }
 
@@ -526,7 +901,7 @@ router.post("/quote", async (req, res) => {
     // --- TWO COLUMN LAYOUT ---
     // Left col: specs table  |  Right col: preview image
     const leftColX = margin;
-    const leftColW = 310;
+    const leftColW = type === "printed-decal" ? 250 : 310;
     const rightColX = leftColX + leftColW + 20;
     const rightColW = pageW - rightColX - margin;
     const rowH = 18;
@@ -550,14 +925,14 @@ router.post("/quote", async (req, res) => {
       specRow("Color", colorName || "—");
       specRow("Character Spacing", `${charSpacing}%`);
       if (hasOffset) {
-        specRow("Offset Background", "Yes");
-        specRow("Offset Color", offsetColorName || "—");
-        specRow("Offset Size", `${offsetSize}"`);
+        specRow("Background Layer", "Yes");
+        specRow("Background Color", offsetColorName || "—");
+        specRow("Background Height", `${offsetSize}"`);
       }
       specRow("Quantity", qty);
       specRow("Vinyl Area", `${area} sq in`);
       specRow("Transfer Tape", `$${(transferTapeCost || 0).toFixed(2)}/unit`);
-      if (hasOffset) specRow("Offset Cost", `$${(offsetCost || 0).toFixed(2)}/unit`);
+      if (hasOffset) specRow("Background Cost", `$${(offsetCost || 0).toFixed(2)}/unit`);
       specRow("Unit Price", `$${unitPrice}`);
     } else {
       specRow("Type", "Printed Decal");
@@ -572,7 +947,8 @@ router.post("/quote", async (req, res) => {
     // Preview image in right column, aligned to specs start
     if (previewBuffer) {
       try {
-        pdfDoc.image(previewBuffer, rightColX, specsStartY, { fit: [rightColW, 180] });
+        const previewFitHeight = type === "printed-decal" ? 260 : 180;
+        pdfDoc.image(previewBuffer, rightColX, specsStartY, { fit: [rightColW, previewFitHeight] });
       } catch (e) {
         console.error("Preview image error:", e.message);
       }
@@ -748,5 +1124,225 @@ function parseSvgPath(d) {
 
   return commands;
 }
+
+// POST /api/decal-files/cut-vinyl-multi
+// Renders multiple rows (text and/or logo) onto a SINGLE cut-vinyl PDF, using
+// the layout positions provided by the frontend (in inches, top-left origin).
+// Supports two layer modes:
+//   layer: "text"   -> outline text + raw logo image at given positions
+//   layer: "offset" -> stroke each text path with `offsetSize` inches of fat
+//                       stroke, producing a halo / "stroke turned into object"
+//                       cut path. Logo offset rendering is currently skipped.
+router.post("/cut-vinyl-multi", async (req, res) => {
+  try {
+    const {
+      rows = [],
+      bbox = {},
+      qty: qtyRaw = 1,
+      layer = "text",
+      offsetSize = 0,
+      colorName = "Vinyl",
+      vinylShortCode,
+      orderId,
+      orderNumber,
+      fileSuffix,
+      layerIndex,
+      layerCount,
+    } = req.body || {};
+
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return res.status(400).json({ error: "rows must be a non-empty array" });
+    }
+    const qtyNum = Math.max(1, parseInt(qtyRaw) || 1);
+    const isOffsetLayer = layer === "offset";
+    const offsetIn = isOffsetLayer ? Math.max(0, parseFloat(offsetSize) || 0) : 0;
+    const decalNum = orderId ? parseInt(orderId) : nextDecalNumber();
+
+    // Compute composite bounding box from rows if not supplied. The bbox is
+    // expressed in inches, top-left = (0,0).
+    let bboxW = parseFloat(bbox.widthIn);
+    let bboxH = parseFloat(bbox.heightIn);
+    if (!Number.isFinite(bboxW) || !Number.isFinite(bboxH) || bboxW <= 0 || bboxH <= 0) {
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      rows.forEach((r) => {
+        const x = Number(r.xIn || 0);
+        const y = Number(r.yIn || 0);
+        const w = Number(r.widthIn || 0);
+        const h = Number(r.heightIn || 0);
+        if (x < minX) minX = x;
+        if (y < minY) minY = y;
+        if (x + w > maxX) maxX = x + w;
+        if (y + h > maxY) maxY = y + h;
+      });
+      bboxW = Math.max(0.1, maxX - minX);
+      bboxH = Math.max(0.1, maxY - minY);
+    }
+    // Inflate bbox by offsetIn on each side so fat strokes don't get clipped
+    // by the bounding/weeding boxes.
+    const pad = isOffsetLayer ? offsetIn / 2 : 0;
+    const graphicW = bboxW + pad * 2;
+    const graphicH = bboxH + pad * 2;
+
+    // Bounding box: 1" taller and wider (0.5" each side)
+    const boxW = graphicW + 1;
+    const boxH = graphicH + 1;
+
+    // Nesting: arrange units within 24" material width
+    const cols = Math.max(1, Math.floor(MATERIAL_WIDTH / boxW));
+    const rows2 = Math.ceil(qtyNum / cols);
+    const totalW = MATERIAL_WIDTH;
+    const totalH = rows2 * boxH;
+
+    const pdfDoc = new PDFDocument({ size: [totalW * PT, totalH * PT], margin: 0 });
+    const chunks = [];
+    pdfDoc.on("data", (c) => chunks.push(c));
+    pdfDoc.on("end", () => {
+      const pdfBuffer = Buffer.concat(chunks);
+      const layerName = isOffsetLayer ? "offset" : "text";
+      const filename = buildCutFilename({
+        orderNumber,
+        vinylShortCode,
+        colorName,
+        suffix: fileSuffix || (isOffsetLayer ? "BG" : "TXT"),
+        legacyDecalNum: decalNum,
+        legacyLayerName: layerName,
+        layerIndex,
+        layerCount,
+      });
+      if (orderNumber) {
+        try {
+          const dir = cutLayerOutputDir(isOffsetLayer);
+          fs.mkdirSync(dir, { recursive: true });
+          fs.writeFileSync(path.join(dir, filename), pdfBuffer);
+        } catch (e) {
+          console.error("Error saving multi-row cut file:", e);
+        }
+      }
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+      res.send(pdfBuffer);
+    });
+
+    for (let unit = 0; unit < qtyNum; unit++) {
+      const col = unit % cols;
+      const row = Math.floor(unit / cols);
+      const boxX = col * boxW;
+      const boxY = row * boxH;
+      const graphicX = boxX + (boxW - graphicW) / 2;
+      const graphicY = boxY + (boxH - graphicH) / 2;
+
+      // Bounding box (no fill)
+      pdfDoc.save();
+      pdfDoc.lineWidth(STROKE_WIDTH);
+      pdfDoc.rect(boxX * PT, boxY * PT, boxW * PT, boxH * PT);
+      pdfDoc.strokeColor("#000000");
+      pdfDoc.stroke();
+      pdfDoc.restore();
+
+      // Weeding box: 0.5" buffer around the graphic envelope
+      const weedBuf = 0.5;
+      const weedW = graphicW + weedBuf * 2;
+      const weedH = graphicH + weedBuf * 2;
+      const weedX = boxX + (boxW - weedW) / 2;
+      const weedY = boxY + (boxH - weedH) / 2;
+      pdfDoc.save();
+      pdfDoc.lineWidth(STROKE_WIDTH);
+      pdfDoc.strokeColor("#000000");
+      pdfDoc.rect(weedX * PT, weedY * PT, weedW * PT, weedH * PT);
+      pdfDoc.stroke();
+      pdfDoc.restore();
+
+      // Registration squares around the graphic envelope
+      const regSize = 0.25;
+      const regPositions = [
+        { x: graphicX - regSize - 0.1, y: graphicY + graphicH / 2 - regSize / 2 },
+        { x: graphicX + graphicW / 2 - regSize / 2, y: graphicY - regSize - 0.1 },
+        { x: graphicX + graphicW + 0.1, y: graphicY + graphicH / 2 - regSize / 2 },
+      ];
+      pdfDoc.save();
+      pdfDoc.lineWidth(STROKE_WIDTH);
+      pdfDoc.strokeColor("#000000");
+      regPositions.forEach((p) => {
+        pdfDoc.rect(p.x * PT, p.y * PT, regSize * PT, regSize * PT);
+        pdfDoc.stroke();
+      });
+      pdfDoc.restore();
+
+      // Render each row at its provided (xIn, yIn) within the bbox.
+      for (const r of rows) {
+        const rxIn = Number(r.xIn || 0) + pad;
+        const ryIn = Number(r.yIn || 0) + pad;
+        const rwIn = Number(r.widthIn || 0);
+        const rhIn = Number(r.heightIn || 0);
+        if (!rwIn || !rhIn) continue;
+
+        // Place row's top-left in PDF space
+        const rxPt = (graphicX + rxIn) * PT;
+        const ryPt = (graphicY + ryIn) * PT;
+
+        if (r.type === "logo") {
+          if (isOffsetLayer) {
+            // MVP: skip logo offset; halo for raster logos requires bitmap
+            // dilation not yet implemented server-side.
+            continue;
+          }
+          if (!r.imageDataUrl) continue;
+          const m = String(r.imageDataUrl).match(/^data:image\/(\w+);base64,(.+)$/);
+          if (!m) continue;
+          try {
+            const buf = Buffer.from(m[2], "base64");
+            pdfDoc.save();
+            pdfDoc.image(buf, rxPt, ryPt, { width: rwIn * PT, height: rhIn * PT });
+            pdfDoc.restore();
+          } catch (e) {
+            console.error("Logo embed failed:", e.message);
+          }
+          continue;
+        }
+
+        // Text row
+        const text = String(r.text || "");
+        if (!text) continue;
+        const otFont = loadFont(r.font || "Arial", !!r.isBold, !!r.isItalic);
+        const fontSize = rhIn * PT;
+        const charSpacingPt = ((parseFloat(r.charSpacing) || 0) / 100) * fontSize;
+        const naturalPath = otFont.getPath(text, 0, 0, fontSize, { letterSpacing: charSpacingPt });
+        const naturalBB = naturalPath.getBoundingBox();
+        const naturalAdvancePt = naturalBB.x2 - naturalBB.x1;
+        const targetWidthPt = rwIn * PT;
+        const xScale = naturalAdvancePt > 0 ? targetWidthPt / naturalAdvancePt : 1;
+        const txPt = rxPt - naturalBB.x1 * xScale;
+        const tyPt = ryPt + rhIn * PT; // baseline at row bottom
+        const svgPath = naturalPath.toPathData();
+
+        if (isOffsetLayer) {
+          // Fat-stroke the path to form the halo cut object
+          pdfDoc.save();
+          pdfDoc.transform(xScale, 0, 0, 1, txPt, tyPt);
+          pdfDoc.lineWidth(offsetIn * PT);
+          pdfDoc.strokeColor("#000000");
+          pdfDoc.fillColor("#000000");
+          pdfDoc.lineJoin("round");
+          drawSvgPath(pdfDoc, svgPath);
+          pdfDoc.fillAndStroke();
+          pdfDoc.restore();
+        } else {
+          pdfDoc.save();
+          pdfDoc.transform(xScale, 0, 0, 1, txPt, tyPt);
+          pdfDoc.lineWidth(STROKE_WIDTH);
+          pdfDoc.strokeColor("#000000");
+          drawSvgPath(pdfDoc, svgPath);
+          pdfDoc.stroke();
+          pdfDoc.restore();
+        }
+      }
+    }
+
+    pdfDoc.end();
+  } catch (err) {
+    console.error("Multi-row cut file error:", err);
+    res.status(500).json({ error: "Failed to generate combined cut file: " + err.message });
+  }
+});
 
 export default router;
