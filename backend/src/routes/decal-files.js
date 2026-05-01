@@ -374,22 +374,25 @@ async function generateLogoCutFile(req, res, { selectedColor, height, width, qty
       pdfDoc.stroke();
       pdfDoc.restore();
       
-      // Registration squares - 3 squares positioned around the graphic
-      const regSize = 0.25;
-      const regPositions = [
-        { x: graphicX - regSize - 0.1, y: graphicY + finalHeight / 2 - regSize / 2 }, // left
-        { x: graphicX + finalWidth / 2 - regSize / 2, y: graphicY - regSize - 0.1 }, // top
-        { x: graphicX + finalWidth + 0.1, y: graphicY + finalHeight / 2 - regSize / 2 } // right
-      ];
-      
-      pdfDoc.save();
-      pdfDoc.lineWidth(STROKE_WIDTH);
-      pdfDoc.strokeColor("#000000");
-      regPositions.forEach(pos => {
-        pdfDoc.rect(pos.x * PT, pos.y * PT, regSize * PT, regSize * PT);
-        pdfDoc.stroke();
-      });
-      pdfDoc.restore();
+      // Registration squares — only emitted on the background (offset) layer
+      // so cutters can align the BG cut to the text/logo cut. Pure single-
+      // layer cut files don't need them.
+      if (layer === "offset") {
+        const regSize = 0.25;
+        const regPositions = [
+          { x: graphicX - regSize - 0.1, y: graphicY + finalHeight / 2 - regSize / 2 }, // left
+          { x: graphicX + finalWidth / 2 - regSize / 2, y: graphicY - regSize - 0.1 }, // top
+          { x: graphicX + finalWidth + 0.1, y: graphicY + finalHeight / 2 - regSize / 2 }, // right
+        ];
+        pdfDoc.save();
+        pdfDoc.lineWidth(STROKE_WIDTH);
+        pdfDoc.strokeColor("#000000");
+        regPositions.forEach(pos => {
+          pdfDoc.rect(pos.x * PT, pos.y * PT, regSize * PT, regSize * PT);
+          pdfDoc.stroke();
+        });
+        pdfDoc.restore();
+      }
       
       // Draw logo image
       pdfDoc.save();
@@ -571,22 +574,24 @@ router.post("/cut-vinyl", async (req, res) => {
       pdfDoc.stroke();
       pdfDoc.restore();
 
-      // Registration squares - 3 squares positioned around the graphic (updated to match frontend)
-      const regSize = 0.25;
-      const regPositions = [
-        { x: graphicX - regSize - 0.1, y: graphicY + hIn / 2 - regSize / 2 }, // left
-        { x: graphicX + textWidthIn / 2 - regSize / 2, y: graphicY - regSize - 0.1 }, // top
-        { x: graphicX + textWidthIn + 0.1, y: graphicY + hIn / 2 - regSize / 2 } // right
-      ];
-      
-      pdfDoc.save();
-      pdfDoc.lineWidth(STROKE_WIDTH);
-      pdfDoc.strokeColor("#000000");
-      regPositions.forEach(pos => {
-        pdfDoc.rect(pos.x * PT, pos.y * PT, regSize * PT, regSize * PT);
-        pdfDoc.stroke();
-      });
-      pdfDoc.restore();
+      // Registration squares — only on the background (offset) layer so the
+      // cutter can align text and BG. Plain text cuts don't need them.
+      if (isOffsetLayer) {
+        const regSize = 0.25;
+        const regPositions = [
+          { x: graphicX - regSize - 0.1, y: graphicY + hIn / 2 - regSize / 2 }, // left
+          { x: graphicX + textWidthIn / 2 - regSize / 2, y: graphicY - regSize - 0.1 }, // top
+          { x: graphicX + textWidthIn + 0.1, y: graphicY + hIn / 2 - regSize / 2 }, // right
+        ];
+        pdfDoc.save();
+        pdfDoc.lineWidth(STROKE_WIDTH);
+        pdfDoc.strokeColor("#000000");
+        regPositions.forEach(pos => {
+          pdfDoc.rect(pos.x * PT, pos.y * PT, regSize * PT, regSize * PT);
+          pdfDoc.stroke();
+        });
+        pdfDoc.restore();
+      }
 
       // Render text path with natural opentype proportions (no distortion).
       // We scale ONLY along X so the rendered advance width equals textWidthIn
@@ -767,7 +772,8 @@ router.post("/printed-decal", (req, res) => {
       pdfDoc.stroke();
       pdfDoc.restore();
 
-      // Weeding box and registration squares for easier production handling
+      // Weeding box for easier production handling. (Printed decals never
+      // get registration squares — they're not multi-layer aligned cuts.)
       const weedBuf = 0.5;
       const weedW = wIn + weedBuf * 2;
       const weedH = hIn + weedBuf * 2;
@@ -781,20 +787,7 @@ router.post("/printed-decal", (req, res) => {
       pdfDoc.stroke();
       pdfDoc.restore();
 
-      const regSize = 0.25;
-      const regPositions = [
-        { x: shapeX - regSize - 0.1, y: shapeY + hIn / 2 - regSize / 2 },
-        { x: shapeX + wIn / 2 - regSize / 2, y: shapeY - regSize - 0.1 },
-        { x: shapeX + wIn + 0.1, y: shapeY + hIn / 2 - regSize / 2 },
-      ];
-      pdfDoc.save();
-      pdfDoc.lineWidth(STROKE_WIDTH);
-      pdfDoc.strokeColor("#000000");
-      regPositions.forEach((p) => {
-        pdfDoc.rect(p.x * PT, p.y * PT, regSize * PT, regSize * PT);
-        pdfDoc.stroke();
-      });
-      pdfDoc.restore();
+      // (Printed decals: registration squares intentionally omitted.)
     }
 
     pdfDoc.end();
@@ -1252,21 +1245,25 @@ router.post("/cut-vinyl-multi", async (req, res) => {
       pdfDoc.stroke();
       pdfDoc.restore();
 
-      // Registration squares around the graphic envelope
-      const regSize = 0.25;
-      const regPositions = [
-        { x: graphicX - regSize - 0.1, y: graphicY + graphicH / 2 - regSize / 2 },
-        { x: graphicX + graphicW / 2 - regSize / 2, y: graphicY - regSize - 0.1 },
-        { x: graphicX + graphicW + 0.1, y: graphicY + graphicH / 2 - regSize / 2 },
-      ];
-      pdfDoc.save();
-      pdfDoc.lineWidth(STROKE_WIDTH);
-      pdfDoc.strokeColor("#000000");
-      regPositions.forEach((p) => {
-        pdfDoc.rect(p.x * PT, p.y * PT, regSize * PT, regSize * PT);
-        pdfDoc.stroke();
-      });
-      pdfDoc.restore();
+      // Registration squares — only on the background (offset) layer so
+      // cutters can align the BG cut against the text/logo cut. Single-
+      // layer text-only cut files don't get them.
+      if (isOffsetLayer) {
+        const regSize = 0.25;
+        const regPositions = [
+          { x: graphicX - regSize - 0.1, y: graphicY + graphicH / 2 - regSize / 2 },
+          { x: graphicX + graphicW / 2 - regSize / 2, y: graphicY - regSize - 0.1 },
+          { x: graphicX + graphicW + 0.1, y: graphicY + graphicH / 2 - regSize / 2 },
+        ];
+        pdfDoc.save();
+        pdfDoc.lineWidth(STROKE_WIDTH);
+        pdfDoc.strokeColor("#000000");
+        regPositions.forEach((p) => {
+          pdfDoc.rect(p.x * PT, p.y * PT, regSize * PT, regSize * PT);
+          pdfDoc.stroke();
+        });
+        pdfDoc.restore();
+      }
 
       // Render each row at its provided (xIn, yIn) within the bbox.
       for (const r of rows) {
@@ -1282,8 +1279,31 @@ router.post("/cut-vinyl-multi", async (req, res) => {
 
         if (r.type === "logo") {
           if (isOffsetLayer) {
-            // MVP: skip logo offset; halo for raster logos requires bitmap
-            // dilation not yet implemented server-side.
+            // Raster-logo halo: emit a rounded rectangle equal to the logo's
+            // bounding rect inflated by `offsetIn` on each side. It's not a
+            // tight silhouette trace, but it gives the cutter a usable
+            // background-piece path so the BACKGROUND FILE button produces a
+            // valid cut PDF in logo mode. (True silhouette dilation requires
+            // bitmap potrace — TODO.)
+            const inflate = offsetIn;
+            const rxIn2 = rxIn - inflate;
+            const ryIn2 = ryIn - inflate;
+            const rwIn2 = rwIn + inflate * 2;
+            const rhIn2 = rhIn + inflate * 2;
+            const rPt = Math.min(rwIn2, rhIn2) * 0.1 * PT; // gentle corner radius
+            pdfDoc.save();
+            pdfDoc.lineWidth(STROKE_WIDTH);
+            pdfDoc.strokeColor("#000000");
+            pdfDoc.fillColor("#000000");
+            pdfDoc.roundedRect(
+              (graphicX + rxIn2) * PT,
+              (graphicY + ryIn2) * PT,
+              rwIn2 * PT,
+              rhIn2 * PT,
+              rPt
+            );
+            pdfDoc.fillAndStroke();
+            pdfDoc.restore();
             continue;
           }
           if (!r.imageDataUrl) continue;
