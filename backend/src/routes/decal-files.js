@@ -617,22 +617,19 @@ router.post("/cut-vinyl", async (req, res) => {
       const svgPath = naturalPath.toPathData();
 
       if (isOffsetLayer) {
-        // Background layer: same path filled with thick stroke = total
-        // background piece extends past text by offsetIn inches on each side.
-        // PDFKit strokes are centered on the path, so we double the line
-        // width to make the halo extend `offsetIn` *outward* (matching the
-        // preview's WebKit text-stroke).
+        // Background layer: outer glyph silhouettes only, fat-stroked so the
+        // resulting cut piece is a solid backing extending offsetIn outward.
+        // Inner contours (R/O/A counters) are excluded so the bg piece has
+        // no internal holes.
+        const bgSvgPath = outerOnlyPath(naturalPath).toPathData();
         pdfDoc.save();
         pdfDoc.transform(xScale, 0, 0, 1, txPt, tyPt);
         pdfDoc.lineWidth(offsetIn * 2 * PT);
         pdfDoc.strokeColor("#000000");
         pdfDoc.fillColor("#000000");
-        // Sharp corners (matches the preview, which traces glyph contours).
-        // miterLimit 2 prevents extreme spikes on acute angles — same value
-        // SVG/CSS use by default for text-stroke.
         pdfDoc.lineJoin("miter");
         pdfDoc.miterLimit(2);
-        drawSvgPath(pdfDoc, svgPath);
+        drawSvgPath(pdfDoc, bgSvgPath);
         pdfDoc.fillAndStroke();
         pdfDoc.restore();
       } else {
@@ -1000,6 +997,49 @@ router.post("/quote", async (req, res) => {
 //   textColor      hex string, e.g. "#000000"
 //   bgColor        hex string, used when offsetIn > 0
 // }
+// Given an opentype.js Path (commands array), return a new Path containing
+// only the OUTER subpaths (clockwise / positive signed area). Used for the BG
+// halo so it forms a solid inflated glyph silhouette without holes — the bg
+// halo should never bleed into letter counters (the inside of "R", "O", etc.).
+function outerOnlyPath(srcPath) {
+  const groups = [];
+  let cur = null;
+  for (const c of srcPath.commands) {
+    if (c.type === "M") {
+      cur = [c];
+      groups.push(cur);
+    } else if (cur) {
+      cur.push(c);
+    }
+  }
+  function signedArea(g) {
+    let a = 0;
+    let lastX = 0, lastY = 0;
+    let startX = 0, startY = 0;
+    for (let i = 0; i < g.length; i++) {
+      const c = g[i];
+      if (c.type === "M") {
+        startX = c.x; startY = c.y;
+        lastX = c.x; lastY = c.y;
+      } else if (c.type === "L" || c.type === "C" || c.type === "Q") {
+        const x = c.x, y = c.y;
+        a += lastX * y - x * lastY;
+        lastX = x; lastY = y;
+      } else if (c.type === "Z") {
+        a += lastX * startY - startX * lastY;
+        lastX = startX; lastY = startY;
+      }
+    }
+    return a;
+  }
+  // For TrueType glyph paths in opentype.js, Y is positive-down; outer
+  // contours wind clockwise → positive shoelace area in this convention.
+  const outer = groups.filter((g) => signedArea(g) > 0).flat();
+  const out = new opentype.Path();
+  out.commands = outer;
+  return out;
+}
+
 function drawCutVinylDecalPreview(pdfDoc, opts) {
   const {
     x, y, ptPerIn,
@@ -1027,8 +1067,11 @@ function drawCutVinylDecalPreview(pdfDoc, opts) {
   const tyPt = y + (offsetIn + contentHIn) * ptPerIn;
   const svgPath = naturalPath.toPathData();
 
-  // Background halo (drawn first so the text fill sits on top)
+  // Background halo (drawn first so the text fill sits on top). Use OUTER
+  // subpaths only so the halo doesn't bleed into letter counters (the
+  // hollow inside of "R", "O", etc.) — the bg piece is a solid backing.
   if (offsetIn > 0) {
+    const outerSvgPath = outerOnlyPath(naturalPath).toPathData();
     pdfDoc.save();
     pdfDoc.transform(xScale, 0, 0, 1, txPt, tyPt);
     pdfDoc.lineWidth(offsetIn * 2 * ptPerIn);
@@ -1036,7 +1079,7 @@ function drawCutVinylDecalPreview(pdfDoc, opts) {
     pdfDoc.fillColor(bgColor);
     pdfDoc.lineJoin("miter");
     pdfDoc.miterLimit(2);
-    drawSvgPath(pdfDoc, svgPath);
+    drawSvgPath(pdfDoc, outerSvgPath);
     pdfDoc.fillAndStroke();
     pdfDoc.restore();
   }
@@ -1413,20 +1456,17 @@ router.post("/cut-vinyl-multi", async (req, res) => {
         const svgPath = naturalPath.toPathData();
 
         if (isOffsetLayer) {
-          // Fat-stroke the path to form the halo cut object. Double the
-          // line width so the stroke extends `offsetIn` outward (matching
-          // the preview's WebKit text-stroke); PDFKit strokes are centered
-          // on the path.
+          // Outer glyph silhouettes only — inner counters excluded so the
+          // bg piece is a solid backing with no internal holes.
+          const bgSvgPath = outerOnlyPath(naturalPath).toPathData();
           pdfDoc.save();
           pdfDoc.transform(xScale, 0, 0, 1, txPt, tyPt);
           pdfDoc.lineWidth(offsetIn * 2 * PT);
           pdfDoc.strokeColor("#000000");
           pdfDoc.fillColor("#000000");
-          // Sharp corners (matches the preview, which traces glyph contours).
-          // miterLimit 2 prevents extreme spikes on acute angles.
           pdfDoc.lineJoin("miter");
           pdfDoc.miterLimit(2);
-          drawSvgPath(pdfDoc, svgPath);
+          drawSvgPath(pdfDoc, bgSvgPath);
           pdfDoc.fillAndStroke();
           pdfDoc.restore();
         } else {
