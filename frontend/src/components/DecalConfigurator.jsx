@@ -12,110 +12,7 @@ const FONT_LIST = [
   "Courier New", "Georgia", "Verdana", "Trebuchet MS", "Lucida Console", "Futura"
 ];
 
-// Inject a <style> block with @font-face rules for every font in FONT_LIST.
-// The backend serves each TTF at /api/decal-files/font/:name?variant=... so
-// the browser will download the real font on-demand the first time the
-// preview needs it (font-display:swap). This makes the configurator render
-// correctly on phones/tablets that don't have the Windows system fonts
-// installed locally.
-const DECAL_FONTS_STYLE_ID = "decal-configurator-fonts";
-function ensureDecalFontsStylesheet() {
-  if (typeof document === "undefined") return;
-  if (document.getElementById(DECAL_FONTS_STYLE_ID)) return;
-  const variants = [
-    { variant: "regular", weight: "normal", style: "normal" },
-    { variant: "bold", weight: "bold", style: "normal" },
-    { variant: "italic", weight: "normal", style: "italic" },
-    { variant: "bolditalic", weight: "bold", style: "italic" },
-  ];
-  const css = FONT_LIST.flatMap((name) => {
-    const enc = encodeURIComponent(name);
-    return variants.map(
-      (v) =>
-        `@font-face{font-family:"${name}";` +
-        `src:url("/api/decal-files/font/${enc}?variant=${v.variant}") format("truetype");` +
-        `font-weight:${v.weight};font-style:${v.style};font-display:swap;}`
-    );
-  }).join("");
-  const el = document.createElement("style");
-  el.id = DECAL_FONTS_STYLE_ID;
-  el.textContent = css;
-  document.head.appendChild(el);
-}
-
-// Fallback list used when the vinyl-color DB isn't populated or is still
-// loading — the shape matches the DB rows: { id, name, colorCode, isActive }.
-const FALLBACK_VINYL_COLORS = [
-  { id: "fb-white",  name: "White",       colorCode: "#ffffff", isActive: true },
-  { id: "fb-black",  name: "Black",       colorCode: "#000000", isActive: true },
-  { id: "fb-red",    name: "Red",         colorCode: "#e01a1a", isActive: true },
-  { id: "fb-blue",   name: "Blue",        colorCode: "#1f5fd4", isActive: true },
-  { id: "fb-green",  name: "Neon Green",  colorCode: "#00ff00", isActive: true },
-  { id: "fb-yellow", name: "Yellow",      colorCode: "#f5d400", isActive: true },
-  { id: "fb-orange", name: "Orange",      colorCode: "#ff7f00", isActive: true },
-];
-
-// Small presentational component: renders a wrapped grid of colored circles,
-// one per active vinyl color. The selected swatch is highlighted with a ring
-// and the active color's NAME is shown above the grid so the customer can
-// visually pick by color without reading every option in a dropdown.
-function ColorSwatchPicker({ value, onChange, colors, loading, disabled }) {
-  if (loading) {
-    return <div style={{ fontSize: 12, color: "#666", padding: "6px 0" }}>Loading colors…</div>;
-  }
-  const list = (colors && colors.length > 0 ? colors : FALLBACK_VINYL_COLORS).filter((c) => c.isActive !== false);
-  const selected = list.find((c) => c.colorCode === value);
-  return (
-    <div>
-      <div
-        style={{
-          fontSize: 12,
-          fontWeight: 600,
-          marginBottom: 4,
-          minHeight: 16,
-          color: "#222",
-        }}
-      >
-        {selected ? selected.name : "(no color picked)"}
-      </div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-        {list.map((c) => {
-          const isSelected = c.colorCode === value;
-          return (
-            <button
-              type="button"
-              key={c.id}
-              onClick={() => !disabled && onChange(c.colorCode)}
-              disabled={disabled}
-              title={c.name}
-              aria-label={c.name}
-              aria-pressed={isSelected}
-              style={{
-                width: 28,
-                height: 28,
-                borderRadius: "50%",
-                backgroundColor: c.colorCode,
-                border: isSelected ? "3px solid #0056b3" : "1px solid #888",
-                // Inner white ring on the selected swatch keeps it legible
-                // even when the color itself is dark blue / black.
-                boxShadow: isSelected ? "inset 0 0 0 2px #ffffff" : "none",
-                cursor: disabled ? "not-allowed" : "pointer",
-                padding: 0,
-                flex: "0 0 auto",
-              }}
-            />
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
 const DecalConfigurator = () => {
-  // Register the @font-face rules once on first render so the preview can
-  // render decals in the real typeface on any device.
-  if (typeof document !== "undefined") ensureDecalFontsStylesheet();
-
   const [text, setText] = useState('YOUR TEXT');
   const [height, setHeight] = useState(2);
   const [qty, setQty] = useState(1);
@@ -1074,8 +971,8 @@ const DecalConfigurator = () => {
   const innerContentTop = contentTop + haloPx;
   const innerContentWidth = displayedContentWidth - haloPx * 2;
   const innerContentHeight = displayedContentHeight - haloPx * 2;
-  const displayWidth = Number(contentWidthIn.toFixed(2));
-  const displayHeight = Number(contentHeightIn.toFixed(2));
+  const displayWidth = Number(actualWidth.toFixed(2));
+  const displayHeight = Number(actualHeight.toFixed(2));
 
   // Itemized pricing: text/logo (primary) + each additional line + background
   const textArea = Number((textWidth * height).toFixed(2));
@@ -1240,14 +1137,14 @@ const DecalConfigurator = () => {
         {(() => {
           const wBarY = contentTop - 18;            // 18px above the envelope top
           const wLabelY = wBarY - 16;
-          const wLeft = innerContentLeft;
-          const wRight = innerContentLeft + innerContentWidth;
+          const wLeft = contentLeft;
+          const wRight = contentLeft + displayedContentWidth;
           return (
             <>
-              <div style={{ position: 'absolute', left: `${wLeft}px`, width: `${innerContentWidth}px`, top: `${wBarY}px`, height: '1px', background: 'rgba(255,255,255,0.85)' }} />
+              <div style={{ position: 'absolute', left: `${wLeft}px`, width: `${wRight - wLeft}px`, top: `${wBarY}px`, height: '1px', background: 'rgba(255,255,255,0.85)' }} />
               <div style={{ position: 'absolute', left: `${wLeft}px`, top: `${wBarY - 5}px`, width: '1px', height: '11px', background: 'rgba(255,255,255,0.85)' }} />
               <div style={{ position: 'absolute', left: `${wRight}px`, top: `${wBarY - 5}px`, width: '1px', height: '11px', background: 'rgba(255,255,255,0.85)' }} />
-              <div style={{ position: 'absolute', top: `${wLabelY}px`, left: `${wLeft + innerContentWidth / 2}px`, transform: 'translateX(-50%)', color: 'white', fontSize: '11px', background: 'rgba(0,0,0,0.7)', padding: '1px 5px', borderRadius: '3px', whiteSpace: 'nowrap' }}>
+              <div style={{ position: 'absolute', top: `${wLabelY}px`, left: `${(wLeft + wRight) / 2}px`, transform: 'translateX(-50%)', color: 'white', fontSize: '11px', background: 'rgba(0,0,0,0.7)', padding: '1px 5px', borderRadius: '3px', whiteSpace: 'nowrap' }}>
                 W {displayWidth}"
               </div>
             </>
@@ -1258,14 +1155,14 @@ const DecalConfigurator = () => {
         {(() => {
           const hBarX = contentLeft - 22;
           const hLabelX = hBarX - 6;
-          const hTop = innerContentTop;
-          const hBottom = innerContentTop + innerContentHeight;
+          const hTop = contentTop;
+          const hBottom = contentTop + displayedContentHeight;
           return (
             <>
-              <div style={{ position: 'absolute', left: `${hBarX}px`, top: `${hTop}px`, height: `${innerContentHeight}px`, width: '1px', background: 'rgba(255,255,255,0.85)' }} />
+              <div style={{ position: 'absolute', left: `${hBarX}px`, top: `${hTop}px`, height: `${hBottom - hTop}px`, width: '1px', background: 'rgba(255,255,255,0.85)' }} />
               <div style={{ position: 'absolute', left: `${hBarX - 5}px`, top: `${hTop}px`, width: '11px', height: '1px', background: 'rgba(255,255,255,0.85)' }} />
               <div style={{ position: 'absolute', left: `${hBarX - 5}px`, top: `${hBottom}px`, width: '11px', height: '1px', background: 'rgba(255,255,255,0.85)' }} />
-              <div style={{ position: 'absolute', left: `${hLabelX}px`, top: `${hTop + innerContentHeight / 2}px`, transform: 'translate(-100%, -50%)', color: 'white', fontSize: '11px', background: 'rgba(0,0,0,0.7)', padding: '1px 5px', borderRadius: '3px', whiteSpace: 'nowrap' }}>
+              <div style={{ position: 'absolute', left: `${hLabelX}px`, top: `${(hTop + hBottom) / 2}px`, transform: 'translate(-100%, -50%)', color: 'white', fontSize: '11px', background: 'rgba(0,0,0,0.7)', padding: '1px 5px', borderRadius: '3px', whiteSpace: 'nowrap' }}>
                 H {displayHeight}"
               </div>
             </>
@@ -1465,12 +1362,25 @@ const DecalConfigurator = () => {
 
         <div>
           <label>Color:</label>
-          <ColorSwatchPicker
-            value={color}
-            onChange={setColor}
-            colors={vinylColors}
-            loading={colorsLoading}
-          />
+          <select value={color} onChange={(e) => setColor(e.target.value)} style={inputStyle} disabled={colorsLoading}>
+            {colorsLoading ? (
+              <option>Loading...</option>
+            ) : vinylColors.length > 0 ? (
+              vinylColors.filter(c => c.isActive).map((c) => (
+                <option key={c.id} value={c.colorCode}>{c.name}</option>
+              ))
+            ) : (
+              <>
+                <option value="white">White</option>
+                <option value="red">Red</option>
+                <option value="#00ff00">Neon Green</option>
+                <option value="black">Black</option>
+                <option value="blue">Blue</option>
+                <option value="yellow">Yellow</option>
+                <option value="#ff7f00">Orange</option>
+              </>
+            )}
+          </select>
         </div>
 
         <div>
@@ -1508,12 +1418,22 @@ const DecalConfigurator = () => {
         <div style={{ marginTop: '10px', padding: '10px', background: 'rgba(0,0,0,0.05)', borderRadius: '8px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
           <div>
             <label>Background Color:</label>
-            <ColorSwatchPicker
-              value={backgroundColor}
-              onChange={setBackgroundColor}
-              colors={vinylColors}
-              loading={colorsLoading}
-            />
+            <select value={backgroundColor} onChange={(e) => setBackgroundColor(e.target.value)} style={inputStyle} disabled={colorsLoading}>
+              {colorsLoading ? (
+                <option>Loading...</option>
+              ) : vinylColors.length > 0 ? (
+                vinylColors.filter((c) => c.isActive).map((c) => (
+                  <option key={c.id} value={c.colorCode}>{c.name}</option>
+                ))
+              ) : (
+                <>
+                  <option value="black">Black</option>
+                  <option value="white">White</option>
+                  <option value="red">Red</option>
+                  <option value="blue">Blue</option>
+                </>
+              )}
+            </select>
           </div>
           <div>
             <label>Background (inches):</label>
@@ -1622,12 +1542,23 @@ const DecalConfigurator = () => {
                   </div>
                   <div>
                     <label style={{ fontSize: '11px' }}>Color:</label>
-                    <ColorSwatchPicker
+                    <select
                       value={l.color}
-                      onChange={(v) => updateAdditionalLine(l.id, { color: v })}
-                      colors={vinylColors}
-                      loading={colorsLoading}
-                    />
+                      onChange={(e) => updateAdditionalLine(l.id, { color: e.target.value })}
+                      style={{ ...inputStyle, marginTop: '2px' }}
+                    >
+                      {vinylColors.length > 0 ? (
+                        vinylColors.filter((c) => c.isActive).map((c) => (
+                          <option key={c.id} value={c.colorCode}>{c.name}</option>
+                        ))
+                      ) : (
+                        <>
+                          <option value="white">White</option>
+                          <option value="red">Red</option>
+                          <option value="black">Black</option>
+                        </>
+                      )}
+                    </select>
                   </div>
                   <div>
                     <label style={{ fontSize: '11px' }}>Font:</label>
