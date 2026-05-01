@@ -1101,32 +1101,80 @@ router.get("/:id/pdf", requireAuth, async (req, res) => {
   }
   y += 6;
 
-  // Divider before two-column body
+  // Divider before preview block
   doc.moveTo(margin, y).lineTo(pageW - margin, y).strokeColor("#cccccc").lineWidth(0.5).stroke();
   y += 12;
 
-  // ---- TWO-COLUMN BODY ----
-  // Left: items table   |   Right: first proof image (if any)
-  const leftColX = margin;
-  const leftColW = firstProof ? 310 : (pageW - margin * 2);
-  const rightColX = leftColX + leftColW + 20;
-  const rightColW = pageW - rightColX - margin;
-  const bodyStartY = y;
+  // ---- LARGE CENTERED PREVIEW (matches quote PDF) ----
+  // Use the first line item's dimensions for the W/H bars when available.
+  const firstSized = (Array.isArray(order.lineItems) ? order.lineItems : [])
+    .find((li) => li && li.widthIn != null && li.heightIn != null);
+  const decalWIn = firstSized ? (Number(firstSized.widthIn) || 1) : 1;
+  const decalHIn = firstSized ? (Number(firstSized.heightIn) || 1) : 1;
 
-  // Items header
+  if (firstProof) {
+    try {
+      const envelopeMaxW = 320;
+      const envelopeMaxH = 220;
+      const previewScale = Math.min(envelopeMaxW / decalWIn, envelopeMaxH / decalHIn);
+      const dispW = decalWIn * previewScale;
+      const dispH = decalHIn * previewScale;
+
+      const leftGutter = 38;
+      const topGutter = 26;
+      const blockW = dispW + leftGutter;
+      const blockX = (pageW - blockW) / 2;
+      const imgX = blockX + leftGutter;
+      const imgY = y + topGutter;
+
+      // The proof snapshot itself.
+      doc.image(firstProof.storedPath, imgX, imgY, { fit: [dispW, dispH] });
+
+      // W bar (above)
+      const wBarY = imgY - 12;
+      doc.save();
+      doc.lineWidth(0.6).strokeColor("#666666");
+      doc.moveTo(imgX, wBarY).lineTo(imgX + dispW, wBarY).stroke();
+      doc.moveTo(imgX, wBarY - 4).lineTo(imgX, wBarY + 4).stroke();
+      doc.moveTo(imgX + dispW, wBarY - 4).lineTo(imgX + dispW, wBarY + 4).stroke();
+      doc.restore();
+      doc.font("Helvetica-Bold").fontSize(9).fillColor("#1a1a1a");
+      doc.text(`W ${decalWIn}"`, imgX, wBarY - 12, { ...opts, width: dispW, align: "center", lineBreak: false });
+
+      // H bar (left)
+      const hBarX = imgX - 12;
+      doc.save();
+      doc.lineWidth(0.6).strokeColor("#666666");
+      doc.moveTo(hBarX, imgY).lineTo(hBarX, imgY + dispH).stroke();
+      doc.moveTo(hBarX - 4, imgY).lineTo(hBarX + 4, imgY).stroke();
+      doc.moveTo(hBarX - 4, imgY + dispH).lineTo(hBarX + 4, imgY + dispH).stroke();
+      doc.restore();
+      doc.font("Helvetica-Bold").fontSize(9).fillColor("#1a1a1a");
+      doc.text(`H ${decalHIn}"`, blockX - 4, imgY + dispH / 2 - 5, { ...opts, width: leftGutter, align: "center", lineBreak: false });
+
+      y = imgY + dispH + 22;
+    } catch (e) {
+      console.warn("Failed to embed first proof image:", e?.message || e);
+    }
+  }
+
+  // ---- ITEMS TABLE (full width, below preview) ----
+  const itemsX = margin;
+  const itemsW = pageW - margin * 2;
+
   doc.fontSize(10).font("Helvetica-Bold").fillColor("#777");
-  doc.text("ITEM", leftColX, y, { ...opts, width: 165 });
-  doc.text("QTY", leftColX + 170, y, { ...opts, width: 30, align: "right" });
-  doc.text("UNIT", leftColX + 205, y, { ...opts, width: 50, align: "right" });
-  doc.text("TOTAL", leftColX + 260, y, { ...opts, width: 50, align: "right" });
+  doc.text("ITEM", itemsX, y, { ...opts, width: itemsW - 250 });
+  doc.text("QTY", itemsX + itemsW - 240, y, { ...opts, width: 50, align: "right" });
+  doc.text("UNIT", itemsX + itemsW - 160, y, { ...opts, width: 70, align: "right" });
+  doc.text("TOTAL", itemsX + itemsW - 80, y, { ...opts, width: 80, align: "right" });
   y += 14;
-  doc.moveTo(leftColX, y).lineTo(leftColX + leftColW, y).strokeColor("#dddddd").lineWidth(0.5).stroke();
+  doc.moveTo(itemsX, y).lineTo(itemsX + itemsW, y).strokeColor("#dddddd").lineWidth(0.5).stroke();
   y += 6;
 
   let subtotal = 0;
   doc.font("Helvetica").fontSize(10).fillColor("#1a1a1a");
   if (order.lineItems.length === 0) {
-    doc.fillColor("#777").text("No products added.", leftColX, y, opts);
+    doc.fillColor("#777").text("No products added.", itemsX, y, opts);
     y += 14;
     doc.fillColor("#1a1a1a");
   } else {
@@ -1134,23 +1182,22 @@ router.get("/:id/pdf", requireAuth, async (req, res) => {
       const lineTotal = Number(li.lineTotal || 0);
       subtotal += lineTotal;
       const rowY = y;
+      const nameW = itemsW - 250;
       doc.font("Helvetica").fontSize(10).fillColor("#1a1a1a");
-      doc.text(String(li.productNameSnapshot || ""), leftColX, rowY, { width: 165 });
-      doc.text(String(li.qty || 0), leftColX + 170, rowY, { ...opts, width: 30, align: "right" });
-      doc.text(money(li.unitPriceFinal), leftColX + 205, rowY, { ...opts, width: 50, align: "right" });
-      doc.text(money(lineTotal), leftColX + 260, rowY, { ...opts, width: 50, align: "right" });
-      // The item name may wrap; advance y past the tallest column
-      const nameH = doc.heightOfString(String(li.productNameSnapshot || ""), { width: 165 });
+      doc.text(String(li.productNameSnapshot || ""), itemsX, rowY, { width: nameW });
+      doc.text(String(li.qty || 0), itemsX + itemsW - 240, rowY, { ...opts, width: 50, align: "right" });
+      doc.text(money(li.unitPriceFinal), itemsX + itemsW - 160, rowY, { ...opts, width: 70, align: "right" });
+      doc.text(money(lineTotal), itemsX + itemsW - 80, rowY, { ...opts, width: 80, align: "right" });
+      const nameH = doc.heightOfString(String(li.productNameSnapshot || ""), { width: nameW });
       y = rowY + Math.max(14, nameH + 2);
 
-      // Sized line metadata in italics, just under the row
       if (li.widthIn != null && li.heightIn != null) {
         const w = Number(li.widthIn);
         const h = Number(li.heightIn);
         const sq = Number(li.sqIn || (w * h));
         const ppsi = Number(li.catalogUnitPriceSnapshot || 0);
         doc.font("Helvetica-Oblique").fontSize(9).fillColor("#666");
-        doc.text(`Sized: ${w}" x ${h}"  •  ${sq.toFixed(2)} sq in  •  ${money(ppsi)}/sq in`, leftColX + 6, y, { ...opts, width: leftColW - 6 });
+        doc.text(`Sized: ${w}" x ${h}"  •  ${sq.toFixed(2)} sq in  •  ${money(ppsi)}/sq in`, itemsX + 6, y, { ...opts, width: itemsW - 6 });
         y += 12;
         doc.font("Helvetica").fontSize(10).fillColor("#1a1a1a");
       }
@@ -1158,23 +1205,6 @@ router.get("/:id/pdf", requireAuth, async (req, res) => {
     });
   }
 
-  // ---- Right column: first proof image (clipped to right column) ----
-  if (firstProof) {
-    try {
-      const previewFitHeight = 260;
-      doc.image(firstProof.storedPath, rightColX, bodyStartY, { fit: [rightColW, previewFitHeight] });
-      doc.fontSize(8).font("Helvetica").fillColor("#888");
-      doc.text(firstProof.filename, rightColX, bodyStartY + previewFitHeight + 4, { ...opts, width: rightColW, align: "center" });
-    } catch (e) {
-      console.warn("Failed to embed first proof image:", e?.message || e);
-    }
-  }
-
-  // Make sure we sit below the right-column preview before drawing the total
-  if (firstProof) {
-    const previewBottom = bodyStartY + 260 + 16;
-    if (y < previewBottom) y = previewBottom;
-  }
   y += 6;
 
   // Divider before total

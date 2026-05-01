@@ -1158,6 +1158,21 @@ const DecalConfigurator = () => {
 
           return (
             <>
+              {hasBackground && strokePx > 0 && (
+                // Single solid backing rectangle that wraps the entire content
+                // stack. This matches real cut-vinyl backing: one closed
+                // rectangle, no cut-outs around individual glyphs/logo edges.
+                <div style={{
+                  position: 'absolute',
+                  left: `${contentLeft}px`,
+                  top: `${contentTop}px`,
+                  width: `${displayedContentWidth}px`,
+                  height: `${displayedContentHeight}px`,
+                  backgroundColor: backgroundColor,
+                  zIndex: 0,
+                  pointerEvents: 'none',
+                }} />
+              )}
               {rowLayout.map((r) => {
                 const rowCenterY = r.top + r.rowHpx / 2 + r.offY;
                 const rowCenterX = centerX + r.offX;
@@ -1182,40 +1197,6 @@ const DecalConfigurator = () => {
                         userSelect: 'none',
                       }}
                     >
-                      {hasBackground && strokePx > 0 && (
-                        // Halo: stack the logo silhouette tinted in the
-                        // background color at multiple offsets in a ring so
-                        // the union forms a uniform halo around the logo.
-                        // 16 angles × a few radial steps → smooth halo at
-                        // any thickness.
-                        <>
-                          {(() => {
-                            const angles = 12;
-                            const steps = Math.max(2, Math.min(5, Math.ceil(strokePx / 4)));
-                            const layers = [];
-                            for (let s = 1; s <= steps; s++) {
-                              const radius = (s / steps) * strokePx;
-                              for (let a = 0; a < angles; a++) {
-                                const theta = (a / angles) * Math.PI * 2;
-                                const dx = Math.cos(theta) * radius;
-                                const dy = Math.sin(theta) * radius;
-                                layers.push(
-                                  <div key={`halo-${s}-${a}`} style={{
-                                    position: 'absolute', inset: 0, pointerEvents: 'none',
-                                    WebkitMaskImage: `url(${r.logoSelectedColor.processedImage})`,
-                                    maskImage: `url(${r.logoSelectedColor.processedImage})`,
-                                    WebkitMaskSize: '100% 100%', maskSize: '100% 100%',
-                                    WebkitMaskRepeat: 'no-repeat', maskRepeat: 'no-repeat',
-                                    backgroundColor: backgroundColor,
-                                    transform: `translate(${dx}px, ${dy}px)`,
-                                  }} />
-                                );
-                              }
-                            }
-                            return layers;
-                          })()}
-                        </>
-                      )}
                       {/* Logo recolored to chosen vinyl color via CSS mask */}
                       <div style={{
                         position: 'absolute', inset: 0,
@@ -1247,22 +1228,6 @@ const DecalConfigurator = () => {
                 };
                 return (
                   <React.Fragment key={r.id}>
-                    {hasBackground && strokePx > 0 && (
-                      // Stroke layer behind the text. WebKit text-stroke is
-                      // centered around the path, so we render full thickness
-                      // = 2 * strokePx and fill with the same color so the
-                      // outline becomes a solid halo.
-                      <div style={{
-                        ...baseTextStyle,
-                        zIndex: 1,
-                        color: backgroundColor,
-                        WebkitTextStrokeWidth: `${strokePx * 2}px`,
-                        WebkitTextStrokeColor: backgroundColor,
-                        pointerEvents: 'none',
-                      }}>
-                        {r.text}
-                      </div>
-                    )}
                     <div
                       onMouseDown={(e) => beginRowDrag(e, r.id, { x: r.id === '__primary__' ? primaryOffsetIn.x : Number(r.offsetXIn || 0), y: r.id === '__primary__' ? primaryOffsetIn.y : Number(r.offsetYIn || 0) })}
                       style={{ ...baseTextStyle, color: r.color, zIndex: 2, cursor: isDragTarget ? 'grabbing' : 'grab' }}
