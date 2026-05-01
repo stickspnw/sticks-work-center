@@ -587,16 +587,16 @@ router.post("/cut-vinyl", async (req, res) => {
       // files by overlaying their marks. Plain (no-bg) decals skip them.
       if (hasBg) {
         const regSize = 0.25;
-        const regBuf = 0.5;
+        const regBuf = 0.25; // gap between envelope edge and mark
         const envW = textWidthIn + bgHaloIn * 2;
         const envH = hIn + bgHaloIn * 2;
         // Center envelope around the text content (same center as graphic).
         const envX = graphicX + graphicW / 2 - envW / 2;
         const envY = graphicY + graphicH / 2 - envH / 2;
         const regPositions = [
-          { x: envX - regSize - regBuf, y: envY + envH / 2 - regSize / 2 }, // left
-          { x: envX + envW / 2 - regSize / 2, y: envY - regSize - regBuf }, // top
-          { x: envX + envW + regBuf, y: envY + envH / 2 - regSize / 2 }, // right
+          { x: envX - regSize - regBuf,       y: envY - regSize - regBuf }, // top-left
+          { x: envX + envW / 2 - regSize / 2, y: envY - regSize - regBuf }, // top-center
+          { x: envX + envW + regBuf,           y: envY - regSize - regBuf }, // top-right
         ];
         pdfDoc.save();
         pdfDoc.lineWidth(STROKE_WIDTH);
@@ -1280,7 +1280,8 @@ router.post("/cut-vinyl-multi", async (req, res) => {
     // rendering. Used for registration-mark positioning so the text cut
     // file and the BG cut file have marks at the same relative spot.
     const bgHaloIn = Math.max(0, parseFloat(offsetSize) || 0);
-    const emitRegMarks = (isOffsetLayer || !!hasBackground) && bgHaloIn > 0;
+    const hasBgFlag = isOffsetLayer || hasBackground === true || hasBackground === 'true';
+    const emitRegMarks = hasBgFlag && bgHaloIn > 0;
     const decalNum = orderId ? parseInt(orderId) : nextDecalNumber();
 
     // Compute composite bounding box from rows if not supplied. The bbox is
@@ -1302,11 +1303,12 @@ router.post("/cut-vinyl-multi", async (req, res) => {
       bboxW = Math.max(0.1, maxX - minX);
       bboxH = Math.max(0.1, maxY - minY);
     }
-    // Inflate bbox by offsetIn on each side so fat strokes don't get clipped
-    // by the bounding/weeding boxes.
-    const pad = isOffsetLayer ? offsetIn / 2 : 0;
-    const graphicW = bboxW + pad * 2;
-    const graphicH = bboxH + pad * 2;
+    // Both layers use the same page/graphic dimensions (based on text bbox)
+    // so the PDFs are the same size and reg marks align when stacked in the cutter.
+    // The offset layer's fat stroke naturally extends beyond bboxW/bboxH but
+    // that is intentional — it's the backing piece that underlaps the text.
+    const graphicW = bboxW;
+    const graphicH = bboxH;
 
     // Bounding box: 1" taller and wider (0.5" each side)
     const boxW = graphicW + 1;
@@ -1382,19 +1384,19 @@ router.post("/cut-vinyl-multi", async (req, res) => {
       // the two cut files by overlaying their marks. Single-layer decals
       // (no bg) don't need them.
       if (emitRegMarks) {
-        // Position reg marks around the BG envelope even on the text
-        // layer — matches where the marks sit on the bg file.
+        // Reg marks sit around the BG envelope (text bbox + halo on each side).
+        // Both layers use the same graphicW/H (= bboxW/bboxH) so graphicX/Y
+        // is identical on both PDFs — marks land at the same physical position.
         const regSize = 0.25;
-        const regBuf = 0.5;
-        const regEnvW = bboxW + bgHaloIn * 2;
-        const regEnvH = bboxH + bgHaloIn * 2;
-        // Center envelope around the text content (same center as graphic).
-        const regEnvX = graphicX + graphicW / 2 - regEnvW / 2;
-        const regEnvY = graphicY + graphicH / 2 - regEnvH / 2;
+        const regBuf = 0.25; // gap between envelope edge and mark
+        const envW = bboxW + bgHaloIn * 2;
+        const envH = bboxH + bgHaloIn * 2;
+        const envX = graphicX + graphicW / 2 - envW / 2;
+        const envY = graphicY + graphicH / 2 - envH / 2;
         const regPositions = [
-          { x: regEnvX - regSize - regBuf, y: regEnvY + regEnvH / 2 - regSize / 2 },
-          { x: regEnvX + regEnvW / 2 - regSize / 2, y: regEnvY - regSize - regBuf },
-          { x: regEnvX + regEnvW + regBuf, y: regEnvY + regEnvH / 2 - regSize / 2 },
+          { x: envX - regSize - regBuf,          y: envY - regSize - regBuf },           // top-left
+          { x: envX + envW / 2 - regSize / 2,    y: envY - regSize - regBuf },           // top-center
+          { x: envX + envW + regBuf,              y: envY - regSize - regBuf },           // top-right
         ];
         pdfDoc.save();
         pdfDoc.lineWidth(STROKE_WIDTH);
