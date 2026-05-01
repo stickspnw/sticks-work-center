@@ -830,26 +830,9 @@ router.post("/quote", async (req, res) => {
         const imgX = blockX + leftGutter;
         const imgY = y + topGutter;
 
-        // Soft drop shadow in the decal's shape (offset down-right, low opacity).
-        // This replaces the prior flat rectangle border for a "lifted" look.
-        const sOff = 5;
-        pdfDoc.save();
-        pdfDoc.fillColor("#000000", 0.15);
-        if (type === "printed-decal" && shape === "circle") {
-          const r = Math.min(dispW, dispH) / 2;
-          pdfDoc.circle(imgX + dispW / 2 + sOff, imgY + dispH / 2 + sOff, r);
-          pdfDoc.fill();
-        } else if (type === "printed-decal" && (shape === "rounded" || shape === "rounded-rectangle")) {
-          pdfDoc.roundedRect(imgX + sOff, imgY + sOff, dispW, dispH, 8);
-          pdfDoc.fill();
-        } else {
-          // Default: rectangular decal envelope (printed rect + cut vinyl)
-          pdfDoc.rect(imgX + sOff, imgY + sOff, dispW, dispH);
-          pdfDoc.fill();
-        }
-        pdfDoc.restore();
-
-        // The decal image itself (cropped snapshot from the frontend).
+        // No backdrop / drop shadow: it read as a hard rectangle behind the
+        // decal which is exactly what we're trying to avoid. The cropped
+        // snapshot floats cleanly on the white page.
         pdfDoc.image(previewBuffer, imgX, imgY, { fit: [dispW, dispH] });
 
         // --- W measurement bar (above) ---
