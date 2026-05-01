@@ -471,7 +471,21 @@ export default function PrintedDecals() {
               let previewImage = null;
               if (previewRef.current) {
                 const h2c = await import('html2canvas').then(m => m.default || m);
-                const canvas = await h2c(previewRef.current, { backgroundColor: '#333333', scale: 3, useCORS: true, logging: false });
+                // Crop to the actual decal mask rect so the embedded image's
+                // aspect ratio matches the real (e.g. 6"×4") decal, not the
+                // square preview box.
+                const pad = 6;
+                const cropX = Math.max(0, Math.floor((previewSize - maskWidth) / 2 - pad));
+                const cropY = Math.max(0, Math.floor((previewSize - maskHeight) / 2 - pad));
+                const cropW = Math.ceil(maskWidth + pad * 2);
+                const cropH = Math.ceil(maskHeight + pad * 2);
+                const canvas = await h2c(previewRef.current, {
+                  backgroundColor: '#333333',
+                  scale: 3,
+                  useCORS: true,
+                  logging: false,
+                  x: cropX, y: cropY, width: cropW, height: cropH,
+                });
                 previewImage = canvas.toDataURL('image/png');
               }
               await api.generateQuote({

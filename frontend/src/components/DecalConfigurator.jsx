@@ -555,17 +555,30 @@ const DecalConfigurator = () => {
     return () => { cancelledFlag = true; };
   }, []);
 
-  // Capture the preview area as a base64 PNG. Returned data URL is later
-  // attached to the order as a "proof" so it shows on the work order PDF.
+  // Capture the preview area as a base64 PNG, cropped to the actual decal
+  // content rect so the resulting image's aspect ratio matches the real
+  // physical decal (not the 460×220 preview box). This is what gets embedded
+  // in the quote PDF and attached as the order proof.
   async function capturePreviewSnapshot() {
     if (!previewRef.current) return null;
     try {
       const h2c = await import('html2canvas').then((m) => m.default || m);
+      // Pad the crop slightly so any sub-pixel rendering of the stroke isn't
+      // cut off at the edges.
+      const pad = 4;
+      const cropX = Math.max(0, Math.floor(contentLeft - pad));
+      const cropY = Math.max(0, Math.floor(contentTop - pad));
+      const cropW = Math.ceil(displayedContentWidth + pad * 2);
+      const cropH = Math.ceil(displayedContentHeight + pad * 2);
       const canvas = await h2c(previewRef.current, {
         backgroundColor: '#333333',
         scale: 2,
         useCORS: true,
         logging: false,
+        x: cropX,
+        y: cropY,
+        width: cropW,
+        height: cropH,
       });
       return canvas.toDataURL('image/png');
     } catch (e) {
@@ -1623,15 +1636,9 @@ const DecalConfigurator = () => {
         <button
           onClick={async () => {
             try {
-              // Capture preview as image using html2canvas-style approach
-              let previewImage = null;
-              if (previewRef.current) {
-                try {
-                  const h2c = await import('html2canvas').then(m => m.default || m);
-                  const canvas = await h2c(previewRef.current, { backgroundColor: '#333333', scale: 2, useCORS: true, logging: false });
-                  previewImage = canvas.toDataURL('image/png');
-                } catch {}
-              }
+              // Use the cropped capture so the embedded image matches the
+              // actual decal's aspect ratio rather than the 460×220 preview box.
+              const previewImage = await capturePreviewSnapshot();
               await api.generateQuote({
                 type: 'cut-vinyl',
                 text, height, font, isBold, isItalic, charSpacing,
