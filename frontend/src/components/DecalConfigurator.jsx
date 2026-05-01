@@ -43,6 +43,74 @@ function ensureDecalFontsStylesheet() {
   document.head.appendChild(el);
 }
 
+// Fallback list used when the vinyl-color DB isn't populated or is still
+// loading — the shape matches the DB rows: { id, name, colorCode, isActive }.
+const FALLBACK_VINYL_COLORS = [
+  { id: "fb-white",  name: "White",       colorCode: "#ffffff", isActive: true },
+  { id: "fb-black",  name: "Black",       colorCode: "#000000", isActive: true },
+  { id: "fb-red",    name: "Red",         colorCode: "#e01a1a", isActive: true },
+  { id: "fb-blue",   name: "Blue",        colorCode: "#1f5fd4", isActive: true },
+  { id: "fb-green",  name: "Neon Green",  colorCode: "#00ff00", isActive: true },
+  { id: "fb-yellow", name: "Yellow",      colorCode: "#f5d400", isActive: true },
+  { id: "fb-orange", name: "Orange",      colorCode: "#ff7f00", isActive: true },
+];
+
+// Small presentational component: renders a wrapped grid of colored circles,
+// one per active vinyl color. The selected swatch is highlighted with a ring
+// and the active color's NAME is shown above the grid so the customer can
+// visually pick by color without reading every option in a dropdown.
+function ColorSwatchPicker({ value, onChange, colors, loading, disabled }) {
+  if (loading) {
+    return <div style={{ fontSize: 12, color: "#666", padding: "6px 0" }}>Loading colors…</div>;
+  }
+  const list = (colors && colors.length > 0 ? colors : FALLBACK_VINYL_COLORS).filter((c) => c.isActive !== false);
+  const selected = list.find((c) => c.colorCode === value);
+  return (
+    <div>
+      <div
+        style={{
+          fontSize: 12,
+          fontWeight: 600,
+          marginBottom: 4,
+          minHeight: 16,
+          color: "#222",
+        }}
+      >
+        {selected ? selected.name : "(no color picked)"}
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+        {list.map((c) => {
+          const isSelected = c.colorCode === value;
+          return (
+            <button
+              type="button"
+              key={c.id}
+              onClick={() => !disabled && onChange(c.colorCode)}
+              disabled={disabled}
+              title={c.name}
+              aria-label={c.name}
+              aria-pressed={isSelected}
+              style={{
+                width: 28,
+                height: 28,
+                borderRadius: "50%",
+                backgroundColor: c.colorCode,
+                border: isSelected ? "3px solid #0056b3" : "1px solid #888",
+                // Inner white ring on the selected swatch keeps it legible
+                // even when the color itself is dark blue / black.
+                boxShadow: isSelected ? "inset 0 0 0 2px #ffffff" : "none",
+                cursor: disabled ? "not-allowed" : "pointer",
+                padding: 0,
+                flex: "0 0 auto",
+              }}
+            />
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 const DecalConfigurator = () => {
   // Register the @font-face rules once on first render so the preview can
   // render decals in the real typeface on any device.
@@ -1397,25 +1465,12 @@ const DecalConfigurator = () => {
 
         <div>
           <label>Color:</label>
-          <select value={color} onChange={(e) => setColor(e.target.value)} style={inputStyle} disabled={colorsLoading}>
-            {colorsLoading ? (
-              <option>Loading...</option>
-            ) : vinylColors.length > 0 ? (
-              vinylColors.filter(c => c.isActive).map((c) => (
-                <option key={c.id} value={c.colorCode}>{c.name}</option>
-              ))
-            ) : (
-              <>
-                <option value="white">White</option>
-                <option value="red">Red</option>
-                <option value="#00ff00">Neon Green</option>
-                <option value="black">Black</option>
-                <option value="blue">Blue</option>
-                <option value="yellow">Yellow</option>
-                <option value="#ff7f00">Orange</option>
-              </>
-            )}
-          </select>
+          <ColorSwatchPicker
+            value={color}
+            onChange={setColor}
+            colors={vinylColors}
+            loading={colorsLoading}
+          />
         </div>
 
         <div>
@@ -1453,22 +1508,12 @@ const DecalConfigurator = () => {
         <div style={{ marginTop: '10px', padding: '10px', background: 'rgba(0,0,0,0.05)', borderRadius: '8px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
           <div>
             <label>Background Color:</label>
-            <select value={backgroundColor} onChange={(e) => setBackgroundColor(e.target.value)} style={inputStyle} disabled={colorsLoading}>
-              {colorsLoading ? (
-                <option>Loading...</option>
-              ) : vinylColors.length > 0 ? (
-                vinylColors.filter((c) => c.isActive).map((c) => (
-                  <option key={c.id} value={c.colorCode}>{c.name}</option>
-                ))
-              ) : (
-                <>
-                  <option value="black">Black</option>
-                  <option value="white">White</option>
-                  <option value="red">Red</option>
-                  <option value="blue">Blue</option>
-                </>
-              )}
-            </select>
+            <ColorSwatchPicker
+              value={backgroundColor}
+              onChange={setBackgroundColor}
+              colors={vinylColors}
+              loading={colorsLoading}
+            />
           </div>
           <div>
             <label>Background (inches):</label>
@@ -1577,23 +1622,12 @@ const DecalConfigurator = () => {
                   </div>
                   <div>
                     <label style={{ fontSize: '11px' }}>Color:</label>
-                    <select
+                    <ColorSwatchPicker
                       value={l.color}
-                      onChange={(e) => updateAdditionalLine(l.id, { color: e.target.value })}
-                      style={{ ...inputStyle, marginTop: '2px' }}
-                    >
-                      {vinylColors.length > 0 ? (
-                        vinylColors.filter((c) => c.isActive).map((c) => (
-                          <option key={c.id} value={c.colorCode}>{c.name}</option>
-                        ))
-                      ) : (
-                        <>
-                          <option value="white">White</option>
-                          <option value="red">Red</option>
-                          <option value="black">Black</option>
-                        </>
-                      )}
-                    </select>
+                      onChange={(v) => updateAdditionalLine(l.id, { color: v })}
+                      colors={vinylColors}
+                      loading={colorsLoading}
+                    />
                   </div>
                   <div>
                     <label style={{ fontSize: '11px' }}>Font:</label>
