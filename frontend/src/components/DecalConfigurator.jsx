@@ -1302,34 +1302,20 @@ const DecalConfigurator = () => {
                 };
                 return (
                   <React.Fragment key={r.id}>
-                    {hasBackground && strokePx > 0 && (() => {
-                      // 8-direction drop-shadow at full strokePx radius gives a
-                      // solid outer halo without bleeding into glyph holes (R/O).
-                      const s = strokePx.toFixed(1);
-                      const c = backgroundColor;
-                      const haloFilter = [
-                        dropShadow,
-                        `drop-shadow(${s}px 0px 0px ${c})`,
-                        `drop-shadow(-${s}px 0px 0px ${c})`,
-                        `drop-shadow(0px ${s}px 0px ${c})`,
-                        `drop-shadow(0px -${s}px 0px ${c})`,
-                        `drop-shadow(${s}px ${s}px 0px ${c})`,
-                        `drop-shadow(-${s}px ${s}px 0px ${c})`,
-                        `drop-shadow(${s}px -${s}px 0px ${c})`,
-                        `drop-shadow(-${s}px -${s}px 0px ${c})`,
-                      ].join(' ');
-                      return (
-                        <div style={{
-                          ...baseTextStyle,
-                          zIndex: 1,
-                          color: backgroundColor,
-                          pointerEvents: 'none',
-                          filter: haloFilter,
-                        }}>
-                          {r.text}
-                        </div>
-                      );
-                    })()}
+                    {hasBackground && strokePx > 0 && (
+                      <div style={{
+                        ...baseTextStyle,
+                        zIndex: 1,
+                        color: backgroundColor,
+                        WebkitTextStrokeWidth: `${strokePx * 2}px`,
+                        WebkitTextStrokeColor: backgroundColor,
+                        paintOrder: 'stroke fill',
+                        pointerEvents: 'none',
+                        filter: dropShadow,
+                      }}>
+                        {r.text}
+                      </div>
+                    )}
                     <div
                       onMouseDown={(e) => beginRowDrag(e, r.id, { x: r.id === '__primary__' ? primaryOffsetIn.x : Number(r.offsetXIn || 0), y: r.id === '__primary__' ? primaryOffsetIn.y : Number(r.offsetYIn || 0) })}
                       style={{
