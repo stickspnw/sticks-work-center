@@ -94,11 +94,23 @@ const DecalConfigurator = () => {
       try {
         const colors = await api.vinylColors();
         setVinylColors(colors);
-        if (colors.length > 0 && !colors.find(c => c.colorCode === color)) {
-          setColor(colors[0].colorCode);
+        const active = colors.filter((c) => c.isActive);
+        // Pick text color: first active color the user hasn't already overridden.
+        let pickedTextCode = color;
+        if (active.length > 0 && !active.find((c) => c.colorCode === color)) {
+          pickedTextCode = active[0].colorCode;
+          setColor(pickedTextCode);
         }
-        if (colors.length > 0 && !colors.find(c => c.colorCode === backgroundColor)) {
-          setBackgroundColor(colors[0].colorCode);
+        // Pick background color: first active color that's NOT the text color
+        // so the halo is always visible by default. Falls back to the first
+        // active color if there's only one option.
+        if (active.length > 0 && !active.find((c) => c.colorCode === backgroundColor)) {
+          const bgPick = active.find((c) => c.colorCode !== pickedTextCode) || active[0];
+          setBackgroundColor(bgPick.colorCode);
+        } else if (active.length > 1 && backgroundColor === pickedTextCode) {
+          // Edge case: previous bg default happened to match the picked text.
+          const bgPick = active.find((c) => c.colorCode !== pickedTextCode) || active[0];
+          setBackgroundColor(bgPick.colorCode);
         }
       } catch (e) {
         console.log('Failed to load vinyl colors, using defaults');
