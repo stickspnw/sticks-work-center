@@ -1288,20 +1288,40 @@ const DecalConfigurator = () => {
                 return (
                   <React.Fragment key={r.id}>
                     {hasBackground && strokePx > 0 && (
-                      // Stroke layer behind the text — a thick same-color
-                      // outline reads as a halo around each glyph. Drop
-                      // shadow goes on this lowest layer.
-                      <div style={{
-                        ...baseTextStyle,
-                        zIndex: 1,
-                        color: backgroundColor,
-                        WebkitTextStrokeWidth: `${strokePx * 2}px`,
-                        WebkitTextStrokeColor: backgroundColor,
-                        pointerEvents: 'none',
-                        filter: dropShadow,
-                      }}>
-                        {r.text}
-                      </div>
+                      // Halo: stack offset copies of the text in the
+                      // background color. The union forms a uniform halo of
+                      // radius `strokePx` around each glyph. We use this
+                      // instead of WebkitTextStroke because html2canvas
+                      // (used for the PDF snapshot) doesn't reliably render
+                      // text-stroke; positioned text copies render the same
+                      // in both the browser and the snapshot.
+                      (() => {
+                        const angles = 12;
+                        const steps = Math.max(2, Math.min(5, Math.ceil(strokePx / 4)));
+                        const layers = [];
+                        for (let s = 1; s <= steps; s++) {
+                          const radius = (s / steps) * strokePx;
+                          for (let a = 0; a < angles; a++) {
+                            const theta = (a / angles) * Math.PI * 2;
+                            const dx = Math.cos(theta) * radius;
+                            const dy = Math.sin(theta) * radius;
+                            const isOutermost = s === steps && a === 0;
+                            layers.push(
+                              <div key={`txt-halo-${r.id}-${s}-${a}`} style={{
+                                ...baseTextStyle,
+                                zIndex: 1,
+                                color: backgroundColor,
+                                pointerEvents: 'none',
+                                transform: `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`,
+                                filter: isOutermost ? dropShadow : undefined,
+                              }}>
+                                {r.text}
+                              </div>
+                            );
+                          }
+                        }
+                        return layers;
+                      })()
                     )}
                     <div
                       onMouseDown={(e) => beginRowDrag(e, r.id, { x: r.id === '__primary__' ? primaryOffsetIn.x : Number(r.offsetXIn || 0), y: r.id === '__primary__' ? primaryOffsetIn.y : Number(r.offsetYIn || 0) })}
