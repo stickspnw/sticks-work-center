@@ -1183,18 +1183,38 @@ const DecalConfigurator = () => {
                       }}
                     >
                       {hasBackground && strokePx > 0 && (
-                        // Stroke layer: same logo silhouette tinted in the
-                        // stroke color, expanded outward via 8-direction
-                        // drop-shadows to form a uniform halo.
-                        <div style={{
-                          position: 'absolute', inset: 0, pointerEvents: 'none',
-                          WebkitMaskImage: `url(${r.logoSelectedColor.processedImage})`,
-                          maskImage: `url(${r.logoSelectedColor.processedImage})`,
-                          WebkitMaskSize: '100% 100%', maskSize: '100% 100%',
-                          WebkitMaskRepeat: 'no-repeat', maskRepeat: 'no-repeat',
-                          backgroundColor: backgroundColor,
-                          filter: logoStrokeFilter(backgroundColor, strokePx),
-                        }} />
+                        // Halo: stack the logo silhouette tinted in the
+                        // background color at multiple offsets in a ring so
+                        // the union forms a uniform halo around the logo.
+                        // 16 angles × a few radial steps → smooth halo at
+                        // any thickness.
+                        <>
+                          {(() => {
+                            const angles = 12;
+                            const steps = Math.max(2, Math.min(5, Math.ceil(strokePx / 4)));
+                            const layers = [];
+                            for (let s = 1; s <= steps; s++) {
+                              const radius = (s / steps) * strokePx;
+                              for (let a = 0; a < angles; a++) {
+                                const theta = (a / angles) * Math.PI * 2;
+                                const dx = Math.cos(theta) * radius;
+                                const dy = Math.sin(theta) * radius;
+                                layers.push(
+                                  <div key={`halo-${s}-${a}`} style={{
+                                    position: 'absolute', inset: 0, pointerEvents: 'none',
+                                    WebkitMaskImage: `url(${r.logoSelectedColor.processedImage})`,
+                                    maskImage: `url(${r.logoSelectedColor.processedImage})`,
+                                    WebkitMaskSize: '100% 100%', maskSize: '100% 100%',
+                                    WebkitMaskRepeat: 'no-repeat', maskRepeat: 'no-repeat',
+                                    backgroundColor: backgroundColor,
+                                    transform: `translate(${dx}px, ${dy}px)`,
+                                  }} />
+                                );
+                              }
+                            }
+                            return layers;
+                          })()}
+                        </>
                       )}
                       {/* Logo recolored to chosen vinyl color via CSS mask */}
                       <div style={{
