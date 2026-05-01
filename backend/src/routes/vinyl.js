@@ -72,10 +72,12 @@ router.put("/colors/:id", async (req, res) => {
 
 router.delete("/colors/:id", async (req, res) => {
   try {
-    await prisma.vinylColor.update({
-      where: { id: req.params.id },
-      data: { isActive: false }
-    });
+    // Hard delete the color. Remove dependent VinylProduct rows first so the
+    // FK on vinylColorId doesn't block the delete.
+    await prisma.$transaction([
+      prisma.vinylProduct.deleteMany({ where: { vinylColorId: req.params.id } }),
+      prisma.vinylColor.delete({ where: { id: req.params.id } }),
+    ]);
     res.json({ message: "Color deleted successfully" });
   } catch (error) {
     res.status(500).json({ error: error.message });

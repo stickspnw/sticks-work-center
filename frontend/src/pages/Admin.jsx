@@ -506,14 +506,15 @@ export default function Admin() {
     }
   }
 
-  async function deleteVinylColor(colorId) {
+  async function deleteVinylColor(color) {
     if (!isAdmin) return;
-    
-    const initials = prompt("Enter initials (2-3 letters) to confirm delete:");
-    if (!initials) return;
-
+    const ok = window.confirm(
+      `Permanently delete vinyl color '${color.name}'?\n\n` +
+      `This cannot be undone. The color will no longer be available for new orders.`
+    );
+    if (!ok) return;
     try {
-      await api.deleteVinylColor(colorId);
+      await api.deleteVinylColor(color.id);
       await refreshVinylColors();
       await refreshAudit(auditTake);
     } catch (e) {
@@ -1235,8 +1236,8 @@ export default function Admin() {
                         <button className={`btn ${color.isActive ? "outline" : "primary"}`} type="button" onClick={() => toggleVinylColorVisibility(color)}>
                           {color.isActive ? "Hide" : "Show"}
                         </button>
-                        <button className="btn danger" type="button" onClick={() => deleteVinylColor(color.id)}>
-                          Archive
+                        <button className="btn danger" type="button" onClick={() => deleteVinylColor(color)}>
+                          Delete
                         </button>
                       </td>
                     </tr>
