@@ -1456,7 +1456,7 @@ export default function Admin() {
                     <div style={{ padding: 14, background: "rgba(255,255,255,0.02)", borderRadius: 10 }}>
                       <h3 style={{ marginTop: 0 }}>Cut Vinyl</h3>
                       {renderToggle("cutVinyl", "textFile", "TEXT FILE button")}
-                      {renderToggle("cutVinyl", "strokeFile", "STROKE FILE button (when stroke enabled)")}
+                      {renderToggle("cutVinyl", "strokeFile", "BACKGROUND FILE button (when background enabled)")}
                       {renderToggle("cutVinyl", "build", "Build for Cut Vinyl button")}
                       {renderToggle("cutVinyl", "payNow", "Pay Now button")}
                       {renderToggle("cutVinyl", "printQuote", "Print Quote button")}

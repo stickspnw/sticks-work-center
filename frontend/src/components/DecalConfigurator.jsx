@@ -1280,15 +1280,14 @@ const DecalConfigurator = () => {
         </label>
         <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <input type="checkbox" checked={hasBackground} onChange={(e) => setHasBackground(e.target.checked)} />
-          Add Stroke Outline
+          Add Background
         </label>
       </div>
 
-      {/* Background Controls - Only show when hasBackground is true */}
       {hasBackground && (
         <div style={{ marginTop: '10px', padding: '10px', background: 'rgba(0,0,0,0.05)', borderRadius: '8px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
           <div>
-            <label>Stroke Color:</label>
+            <label>Background Color:</label>
             <select value={backgroundColor} onChange={(e) => setBackgroundColor(e.target.value)} style={inputStyle} disabled={colorsLoading}>
               {colorsLoading ? (
                 <option>Loading...</option>
@@ -1307,11 +1306,37 @@ const DecalConfigurator = () => {
             </select>
           </div>
           <div>
-            <label>Stroke Width (inches):</label>
+            <label>Background Width (inches):</label>
             <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
-              <button type="button" onClick={() => decrement(setBackgroundHeight, backgroundHeight, 0.0625, 0.0625)} style={btnStyle}>-</button>
-              <input type="number" value={backgroundHeight} min="0.0625" max="4" step="0.0625" onChange={(e) => setBackgroundHeight(Math.max(0.0625, parseFloat(e.target.value) || 0.0625))} style={{...inputStyle, textAlign: 'center', flex: 1}} />
-              <button type="button" onClick={() => increment(setBackgroundHeight, backgroundHeight, 0.0625, 4)} style={btnStyle}>+</button>
+              {/* The input controls TOTAL background width = content + 2 * per-side padding.
+                  Internal state (backgroundHeight) stays as per-side padding so all
+                  geometry/PDF code keeps working without changes. */}
+              <button
+                type="button"
+                onClick={() => setBackgroundHeight((p) => Math.max(0.0625, (Number(p) || 0) - 0.125))}
+                style={btnStyle}
+              >-</button>
+              <input
+                type="number"
+                value={Number((Number(contentWidthIn || 0) + 2 * (Number(backgroundHeight) || 0)).toFixed(4))}
+                min={Number((Number(contentWidthIn || 0) + 0.125).toFixed(4))}
+                step="0.25"
+                onChange={(e) => {
+                  const total = parseFloat(e.target.value);
+                  if (!Number.isFinite(total)) return;
+                  const perSide = (total - Number(contentWidthIn || 0)) / 2;
+                  setBackgroundHeight(Math.max(0.0625, Number(perSide.toFixed(4))));
+                }}
+                style={{...inputStyle, textAlign: 'center', flex: 1}}
+              />
+              <button
+                type="button"
+                onClick={() => setBackgroundHeight((p) => Math.min(8, (Number(p) || 0) + 0.125))}
+                style={btnStyle}
+              >+</button>
+            </div>
+            <div style={{ fontSize: '11px', color: '#666', marginTop: '4px' }}>
+              Padding: {Number(backgroundHeight).toFixed(2)}" each side
             </div>
           </div>
         </div>
@@ -1472,9 +1497,9 @@ const DecalConfigurator = () => {
 
         {hasBackground && (
           <div style={{ marginBottom: '8px' }}>
-            <div style={{ fontWeight: 'bold' }}>Stroke Outline</div>
+            <div style={{ fontWeight: 'bold' }}>Background</div>
             <div>Color: {backgroundColorName}</div>
-            <div>Stroke Width: {Number(backgroundHeight).toFixed(2)}"</div>
+            <div>Background Width: {(Number(contentWidthIn || 0) + 2 * Number(backgroundHeight || 0)).toFixed(2)}" (padding {Number(backgroundHeight).toFixed(2)}"/side)</div>
             <div>Area: {bgArea} sq in</div>
             <div>Subtotal: ${backgroundCost.toFixed(2)}</div>
           </div>
@@ -1537,11 +1562,11 @@ const DecalConfigurator = () => {
                   vinylShortCode: shortCodeFor(backgroundColor),
                   fileSuffix: 'STROKE',
                 });
-              } catch (e) { alert('Error generating stroke file: ' + e.message); }
+              } catch (e) { alert('Error generating background file: ' + e.message); }
             }}
             style={{ padding: '10px 18px', background: '#28a745', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontWeight: 'bold' }}
           >
-            STROKE FILE
+            BACKGROUND FILE
           </button>
         )}
         {cvToggles.build !== false && (
