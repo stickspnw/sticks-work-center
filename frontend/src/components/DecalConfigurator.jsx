@@ -1285,58 +1285,53 @@ const DecalConfigurator = () => {
                   transformOrigin: 'center center',
                   userSelect: 'none',
                 };
+                // Render the text via an SVG <text> element. SVG produces
+                // glyph-accurate strokes with sharp miter joins (matching the
+                // cut file exactly) and renders consistently in html2canvas
+                // for the PDF snapshot. We use paintOrder="stroke" so the
+                // stroke (=halo) is drawn UNDER the fill, identical to a
+                // real layered cut decal. The SVG box is sized to the row +
+                // halo padding so the stroke can extend outside the glyph.
+                const svgPad = (hasBackground && strokePx > 0) ? strokePx : 0;
+                const svgW = r.rowWpx + svgPad * 2;
+                const svgH = r.rowHpx + svgPad * 2;
                 return (
-                  <React.Fragment key={r.id}>
-                    {hasBackground && strokePx > 0 && (
-                      // Halo: stack offset copies of the text in the
-                      // background color. The union forms a uniform halo of
-                      // radius `strokePx` around each glyph. We use this
-                      // instead of WebkitTextStroke because html2canvas
-                      // (used for the PDF snapshot) doesn't reliably render
-                      // text-stroke; positioned text copies render the same
-                      // in both the browser and the snapshot.
-                      (() => {
-                        const angles = 12;
-                        const steps = Math.max(2, Math.min(5, Math.ceil(strokePx / 4)));
-                        const layers = [];
-                        for (let s = 1; s <= steps; s++) {
-                          const radius = (s / steps) * strokePx;
-                          for (let a = 0; a < angles; a++) {
-                            const theta = (a / angles) * Math.PI * 2;
-                            const dx = Math.cos(theta) * radius;
-                            const dy = Math.sin(theta) * radius;
-                            const isOutermost = s === steps && a === 0;
-                            layers.push(
-                              <div key={`txt-halo-${r.id}-${s}-${a}`} style={{
-                                ...baseTextStyle,
-                                zIndex: 1,
-                                color: backgroundColor,
-                                pointerEvents: 'none',
-                                transform: `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`,
-                                filter: isOutermost ? dropShadow : undefined,
-                              }}>
-                                {r.text}
-                              </div>
-                            );
-                          }
-                        }
-                        return layers;
-                      })()
-                    )}
-                    <div
-                      onMouseDown={(e) => beginRowDrag(e, r.id, { x: r.id === '__primary__' ? primaryOffsetIn.x : Number(r.offsetXIn || 0), y: r.id === '__primary__' ? primaryOffsetIn.y : Number(r.offsetYIn || 0) })}
-                      style={{
-                        ...baseTextStyle,
-                        color: r.color,
-                        zIndex: 2,
-                        cursor: isDragTarget ? 'grabbing' : 'grab',
-                        // No halo? Then the text itself is the bottom layer.
-                        filter: (hasBackground && strokePx > 0) ? undefined : dropShadow,
-                      }}
+                  <svg
+                    key={r.id}
+                    onMouseDown={(e) => beginRowDrag(e, r.id, { x: r.id === '__primary__' ? primaryOffsetIn.x : Number(r.offsetXIn || 0), y: r.id === '__primary__' ? primaryOffsetIn.y : Number(r.offsetYIn || 0) })}
+                    width={svgW}
+                    height={svgH}
+                    style={{
+                      position: 'absolute',
+                      left: `${rowCenterX}px`,
+                      top: `${rowCenterY}px`,
+                      transform: 'translate(-50%, -50%)',
+                      zIndex: 2,
+                      cursor: isDragTarget ? 'grabbing' : 'grab',
+                      userSelect: 'none',
+                      overflow: 'visible',
+                      filter: dropShadow,
+                    }}
+                  >
+                    <text
+                      x={svgPad}
+                      y={svgPad + r.rowHpx * 0.82 /* approx baseline */}
+                      fontSize={fontSizePx}
+                      fontFamily={r.font}
+                      fontWeight={r.isBold ? 'bold' : 'normal'}
+                      fontStyle={r.isItalic ? 'italic' : 'normal'}
+                      letterSpacing={letterSpacingPx}
+                      fill={r.color}
+                      stroke={(hasBackground && strokePx > 0) ? backgroundColor : 'none'}
+                      strokeWidth={(hasBackground && strokePx > 0) ? strokePx * 2 : 0}
+                      strokeLinejoin="miter"
+                      strokeMiterlimit="2"
+                      paintOrder="stroke"
+                      style={{ whiteSpace: 'pre' }}
                     >
                       {r.text}
-                    </div>
-                  </React.Fragment>
+                    </text>
+                  </svg>
                 );
               })}
             </>

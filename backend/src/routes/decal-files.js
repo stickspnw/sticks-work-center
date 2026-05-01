@@ -247,10 +247,11 @@ async function generateBgRectCutFile(req, res, { widthIn, heightIn, qty, colorNa
 
       // Registration squares around the graphic
       const regSize = 0.25;
+      const regBuf = 0.5; // gap from BG envelope to reg mark (no touching)
       const regPositions = [
-        { x: graphicX - regSize - 0.1, y: graphicY + graphicH / 2 - regSize / 2 },
-        { x: graphicX + graphicW / 2 - regSize / 2, y: graphicY - regSize - 0.1 },
-        { x: graphicX + graphicW + 0.1, y: graphicY + graphicH / 2 - regSize / 2 },
+        { x: graphicX - regSize - regBuf, y: graphicY + graphicH / 2 - regSize / 2 },
+        { x: graphicX + graphicW / 2 - regSize / 2, y: graphicY - regSize - regBuf },
+        { x: graphicX + graphicW + regBuf, y: graphicY + graphicH / 2 - regSize / 2 },
       ];
       pdfDoc.save();
       pdfDoc.lineWidth(STROKE_WIDTH);
@@ -379,10 +380,11 @@ async function generateLogoCutFile(req, res, { selectedColor, height, width, qty
       // layer cut files don't need them.
       if (layer === "offset") {
         const regSize = 0.25;
+        const regBuf = 0.5; // gap from BG envelope to reg mark (no touching)
         const regPositions = [
-          { x: graphicX - regSize - 0.1, y: graphicY + finalHeight / 2 - regSize / 2 }, // left
-          { x: graphicX + finalWidth / 2 - regSize / 2, y: graphicY - regSize - 0.1 }, // top
-          { x: graphicX + finalWidth + 0.1, y: graphicY + finalHeight / 2 - regSize / 2 }, // right
+          { x: graphicX - regSize - regBuf, y: graphicY + finalHeight / 2 - regSize / 2 }, // left
+          { x: graphicX + finalWidth / 2 - regSize / 2, y: graphicY - regSize - regBuf }, // top
+          { x: graphicX + finalWidth + regBuf, y: graphicY + finalHeight / 2 - regSize / 2 }, // right
         ];
         pdfDoc.save();
         pdfDoc.lineWidth(STROKE_WIDTH);
@@ -577,11 +579,18 @@ router.post("/cut-vinyl", async (req, res) => {
       // Registration squares — only on the background (offset) layer so the
       // cutter can align text and BG. Plain text cuts don't need them.
       if (isOffsetLayer) {
+        // Position reg marks around the BG envelope (text + offset on each
+        // side), with a 0.5" buffer so they never touch the halo.
         const regSize = 0.25;
+        const regBuf = 0.5;
+        const envW = textWidthIn + offsetIn * 2;
+        const envH = hIn + offsetIn * 2;
+        const envX = graphicX - offsetIn;
+        const envY = graphicY - offsetIn;
         const regPositions = [
-          { x: graphicX - regSize - 0.1, y: graphicY + hIn / 2 - regSize / 2 }, // left
-          { x: graphicX + textWidthIn / 2 - regSize / 2, y: graphicY - regSize - 0.1 }, // top
-          { x: graphicX + textWidthIn + 0.1, y: graphicY + hIn / 2 - regSize / 2 }, // right
+          { x: envX - regSize - regBuf, y: envY + envH / 2 - regSize / 2 }, // left
+          { x: envX + envW / 2 - regSize / 2, y: envY - regSize - regBuf }, // top
+          { x: envX + envW + regBuf, y: envY + envH / 2 - regSize / 2 }, // right
         ];
         pdfDoc.save();
         pdfDoc.lineWidth(STROKE_WIDTH);
@@ -619,8 +628,10 @@ router.post("/cut-vinyl", async (req, res) => {
         pdfDoc.strokeColor("#000000");
         pdfDoc.fillColor("#000000");
         // Sharp corners (matches the preview, which traces glyph contours).
+        // miterLimit 2 prevents extreme spikes on acute angles — same value
+        // SVG/CSS use by default for text-stroke.
         pdfDoc.lineJoin("miter");
-        pdfDoc.miterLimit(10);
+        pdfDoc.miterLimit(2);
         drawSvgPath(pdfDoc, svgPath);
         pdfDoc.fillAndStroke();
         pdfDoc.restore();
@@ -1321,8 +1332,9 @@ router.post("/cut-vinyl-multi", async (req, res) => {
           pdfDoc.strokeColor("#000000");
           pdfDoc.fillColor("#000000");
           // Sharp corners (matches the preview, which traces glyph contours).
+          // miterLimit 2 prevents extreme spikes on acute angles.
           pdfDoc.lineJoin("miter");
-          pdfDoc.miterLimit(10);
+          pdfDoc.miterLimit(2);
           drawSvgPath(pdfDoc, svgPath);
           pdfDoc.fillAndStroke();
           pdfDoc.restore();
