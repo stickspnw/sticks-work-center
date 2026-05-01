@@ -1303,24 +1303,21 @@ const DecalConfigurator = () => {
                 return (
                   <React.Fragment key={r.id}>
                     {hasBackground && strokePx > 0 && (() => {
-                      // Build a drop-shadow stack that produces a solid outer
-                      // halo around the glyph silhouette — same appearance as
-                      // the bg cut file (outerOnlyPath filled+stroked).
-                      // drop-shadow follows the alpha mask so it never bleeds
-                      // into inner glyph counters (R/O holes).
-                      const angles = 16;
-                      const steps = Math.max(2, Math.min(6, Math.ceil(strokePx / 6)));
-                      const shadows = [];
-                      for (let s = 1; s <= steps; s++) {
-                        const r2 = (s / steps) * strokePx;
-                        for (let a = 0; a < angles; a++) {
-                          const theta = (a / angles) * Math.PI * 2;
-                          const dx = (Math.cos(theta) * r2).toFixed(1);
-                          const dy = (Math.sin(theta) * r2).toFixed(1);
-                          shadows.push(`drop-shadow(${dx}px ${dy}px 0px ${backgroundColor})`);
-                        }
-                      }
-                      const haloFilter = [dropShadow, ...shadows].join(' ');
+                      // 8-direction drop-shadow at full strokePx radius gives a
+                      // solid outer halo without bleeding into glyph holes (R/O).
+                      const s = strokePx.toFixed(1);
+                      const c = backgroundColor;
+                      const haloFilter = [
+                        dropShadow,
+                        `drop-shadow(${s}px 0px 0px ${c})`,
+                        `drop-shadow(-${s}px 0px 0px ${c})`,
+                        `drop-shadow(0px ${s}px 0px ${c})`,
+                        `drop-shadow(0px -${s}px 0px ${c})`,
+                        `drop-shadow(${s}px ${s}px 0px ${c})`,
+                        `drop-shadow(-${s}px ${s}px 0px ${c})`,
+                        `drop-shadow(${s}px -${s}px 0px ${c})`,
+                        `drop-shadow(-${s}px -${s}px 0px ${c})`,
+                      ].join(' ');
                       return (
                         <div style={{
                           ...baseTextStyle,
