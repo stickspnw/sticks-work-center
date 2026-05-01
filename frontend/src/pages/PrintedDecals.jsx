@@ -109,10 +109,26 @@ export default function PrintedDecals() {
   const shippingFee = Number(storefrontPricing.shippingFlatFee || 0);
   const totalPrice = (minBumpedSubtotal + shippingFee).toFixed(2);
 
-  const maxMask = 360;
+  // Preview is responsive: square box that fills its parent up to 400px on
+  // desktop and shrinks proportionally on mobile. We measure the rendered
+  // width via ResizeObserver so the absolute-positioned mask + measurement
+  // bars never overflow the viewport.
+  const PREVIEW_MAX = 400;
+  const [previewSize, setPreviewSize] = useState(PREVIEW_MAX);
+  useEffect(() => {
+    if (!previewRef.current || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const w = entry.contentRect.width;
+        if (w > 0) setPreviewSize(Math.max(220, Math.round(w)));
+      }
+    });
+    ro.observe(previewRef.current);
+    return () => ro.disconnect();
+  }, []);
+  const maxMask = Math.round(previewSize * 0.9);
   const maskWidth = shape === "rectangle" ? (width / Math.max(width, height)) * maxMask : maxMask;
   const maskHeight = shape === "rectangle" ? (height / Math.max(width, height)) * maxMask : maxMask;
-  const previewSize = 400;
   const measurePad = 20;
 
   useEffect(() => {
@@ -176,7 +192,7 @@ export default function PrintedDecals() {
   const isEps = file?.type === "application/postscript" || file?.type === "application/eps";
 
   return (
-    <div style={{ padding: '20px' }}>
+    <div style={{ padding: 'clamp(8px, 3vw, 20px)', width: '100%', boxSizing: 'border-box', overflowX: 'hidden' }}>
       {/* Logo */}
       {logoUrl && (
         <div style={{ textAlign: 'center', marginBottom: '10px' }}>
@@ -207,11 +223,11 @@ export default function PrintedDecals() {
       <p style={{ textAlign: 'center', marginBottom: '20px' }}>Design your own printed decal below.</p>
 
       <div style={{ display: 'flex', justifyContent: 'center' }}>
-        <div style={{ padding: '20px', maxWidth: '520px', width: '100%', background: '#fff', borderRadius: '10px', color: '#000' }}>
+        <div style={{ padding: '16px', maxWidth: '520px', width: '100%', boxSizing: 'border-box', background: '#fff', borderRadius: '10px', color: '#000' }}>
           <h2 style={{ textAlign: 'center' }}>Printed Decals</h2>
 
-      {/* Visual Preview */}
-      <div ref={previewRef} style={{ width: "400px", height: "400px", margin: "0 auto 20px", background: '#333', position: 'relative' }}>
+      {/* Visual Preview — responsive square (max 400px, shrinks on mobile) */}
+      <div ref={previewRef} style={{ width: `min(100%, ${PREVIEW_MAX}px)`, aspectRatio: '1 / 1', height: `${previewSize}px`, margin: "0 auto 20px", background: '#333', position: 'relative' }}>
         {/* Measurement bars (match cut-vinyl preview style) */}
         <div style={{ position: 'absolute', left: `${(previewSize - maskWidth) / 2}px`, width: `${maskWidth}px`, top: `${(previewSize - maskHeight) / 2 - measurePad}px`, height: '1px', background: 'rgba(255,255,255,0.85)', zIndex: 3 }} />
         <div style={{ position: 'absolute', left: `${(previewSize - maskWidth) / 2}px`, top: `${(previewSize - maskHeight) / 2 - measurePad - 5}px`, width: '1px', height: '11px', background: 'rgba(255,255,255,0.85)', zIndex: 3 }} />

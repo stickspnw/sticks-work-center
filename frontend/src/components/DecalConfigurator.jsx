@@ -345,7 +345,7 @@ const DecalConfigurator = () => {
         offsetSize: Number(backgroundHeight) || 0,
         colorName: backgroundColorName,
         vinylShortCode: shortCodeFor(backgroundColor),
-        fileSuffix: 'STROKE',
+        fileSuffix: 'BG',
         layerIndex: layerCount,
         layerCount,
       });
@@ -676,7 +676,7 @@ const DecalConfigurator = () => {
           vinylShortCode: shortCodeFor(backgroundColor),
           orderId,
           orderNumber,
-          fileSuffix: 'STROKE',
+          fileSuffix: 'BG',
           layerIndex: layerCount,
           layerCount,
         });
@@ -697,8 +697,26 @@ const DecalConfigurator = () => {
   const increment = (setter, value, step = 1, max = 100) => setter(Math.min(max, Number((parseFloat(value) + step).toFixed(1))));
   const decrement = (setter, value, step = 1, min = 0.5) => setter(Math.max(min, Number((parseFloat(value) - step).toFixed(1))));
 
-  const previewWidth = 460;
-  const previewHeight = 220;
+  // The preview box is responsive — it fills its parent up to 460px on desktop
+  // but shrinks on mobile. We measure the rendered width via a ResizeObserver
+  // so all internal absolute coordinates (W/H labels, content positioning,
+  // drag math) stay accurate at any viewport size. Height scales proportionally.
+  const PREVIEW_MAX_WIDTH = 460;
+  const PREVIEW_BASE_HEIGHT = 220;
+  const [measuredPreviewWidth, setMeasuredPreviewWidth] = useState(PREVIEW_MAX_WIDTH);
+  useEffect(() => {
+    if (!previewRef.current || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const w = entry.contentRect.width;
+        if (w > 0) setMeasuredPreviewWidth(w);
+      }
+    });
+    ro.observe(previewRef.current);
+    return () => ro.disconnect();
+  }, []);
+  const previewWidth = Math.max(180, Math.round(measuredPreviewWidth));
+  const previewHeight = Math.max(140, Math.round(previewWidth * (PREVIEW_BASE_HEIGHT / PREVIEW_MAX_WIDTH)));
   const baseFontSize = 72;
 
   // Buffer zone for measurement markers (stable margins so bars never touch content)
@@ -928,7 +946,7 @@ const DecalConfigurator = () => {
   const totalPrice = (minBumpedSubtotal + shippingFee).toFixed(2);
 
   return (
-    <div style={{ padding: '20px', maxWidth: '520px', background: '#fff', borderRadius: '10px', color: '#000' }}>
+    <div style={{ padding: '16px', width: '100%', maxWidth: '520px', boxSizing: 'border-box', background: '#fff', borderRadius: '10px', color: '#000' }}>
       <h2 style={{ textAlign: 'center' }}>Cut Vinyl</h2>
 
       {/* Logo Upload Section */}
@@ -1028,11 +1046,13 @@ const DecalConfigurator = () => {
         )}
       </div>
 
-      {/* Visual Preview Box */}
+      {/* Visual Preview Box (responsive: fills parent up to PREVIEW_MAX_WIDTH) */}
       <div ref={previewRef} style={{
         height: `${previewHeight}px`, background: '#333', display: 'flex',
         alignItems: 'center', justifyContent: 'center', position: 'relative',
-        marginBottom: '20px', borderRadius: '5px', overflow: 'hidden', width: '100%', maxWidth: `${previewWidth}px`, margin: '0 auto 20px', boxShadow: '0 4px 12px rgba(0,0,0,0.3)'
+        borderRadius: '5px', overflow: 'hidden',
+        width: '100%', maxWidth: `${PREVIEW_MAX_WIDTH}px`, boxSizing: 'border-box',
+        margin: '0 auto 20px', boxShadow: '0 4px 12px rgba(0,0,0,0.3)'
       }}>
         {/* === Width measurement (always above content with stable buffer) === */}
         {(() => {
@@ -1306,7 +1326,7 @@ const DecalConfigurator = () => {
             </select>
           </div>
           <div>
-            <label>Background Width (inches):</label>
+            <label>Background (inches):</label>
             <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
               {/* The input controls TOTAL background width = content + 2 * per-side padding.
                   Internal state (backgroundHeight) stays as per-side padding so all
@@ -1560,7 +1580,7 @@ const DecalConfigurator = () => {
                   offsetSize: Number(backgroundHeight) || 0,
                   colorName: backgroundColorName,
                   vinylShortCode: shortCodeFor(backgroundColor),
-                  fileSuffix: 'STROKE',
+                  fileSuffix: 'BG',
                 });
               } catch (e) { alert('Error generating background file: ' + e.message); }
             }}

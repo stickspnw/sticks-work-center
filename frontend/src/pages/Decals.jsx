@@ -20,7 +20,7 @@ export default function Decals() {
   }, []);
 
   return (
-    <div style={{ padding: '20px' }}>
+    <div style={{ padding: 'clamp(8px, 3vw, 20px)', width: '100%', boxSizing: 'border-box', overflowX: 'hidden' }}>
       {/* Logo */}
       {logoUrl && (
         <div style={{ textAlign: 'center', marginBottom: '10px' }}>
