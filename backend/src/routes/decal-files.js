@@ -654,20 +654,7 @@ router.post("/printed-decal", (req, res) => {
 
     const wIn = parseFloat(width);
     const hIn = parseFloat(height);
-    const qtyNum = parseInt(qty) || 1;
     const decalNum = nextDecalNumber();
-    const prevW = parseFloat(previewWidth) || 360;
-    const prevH = parseFloat(previewHeight) || 360;
-
-    // Bounding box: 1" taller and wider
-    const boxW = wIn + 1;
-    const boxH = hIn + 1;
-
-    // Nesting within 24" material width
-    const cols = Math.max(1, Math.floor(MATERIAL_WIDTH / boxW));
-    const rows = Math.ceil(qtyNum / cols);
-    const totalW = MATERIAL_WIDTH;
-    const totalH = rows * boxH;
 
     // Parse base64 image data (canvas snapshot PNG)
     let imgBuffer = null;
@@ -678,8 +665,10 @@ router.post("/printed-decal", (req, res) => {
       }
     }
 
+    // Page is sized exactly to the decal — no bounding box, no weeding box,
+    // no cut path, no nesting. Just one copy of the artwork.
     const pdfDoc = new PDFDocument({
-      size: [totalW * PT, totalH * PT],
+      size: [wIn * PT, hIn * PT],
       margin: 0,
     });
 
@@ -694,100 +683,17 @@ router.post("/printed-decal", (req, res) => {
       res.send(pdfBuffer);
     });
 
-    for (let i = 0; i < qtyNum; i++) {
-      const col = i % cols;
-      const row = Math.floor(i / cols);
-      const boxX = col * boxW;
-      const boxY = row * boxH;
-
-      // Shape position (centered in bounding box)
-      const shapeX = boxX + 0.5;
-      const shapeY = boxY + 0.5;
-
-      // Draw uploaded artwork snapshot clipped to the sticker shape.
-      // Frontend now captures only the sticker area for cleaner output quality.
-      if (imgBuffer) {
-        pdfDoc.save();
-        // Clip to sticker shape
-        if (shape === "circle") {
-          const cx = (shapeX + wIn / 2) * PT;
-          const cy = (shapeY + hIn / 2) * PT;
-          const r = Math.min(wIn, hIn) / 2 * PT;
-          pdfDoc.circle(cx, cy, r);
-        } else {
-          const rrPt = shape === "rectangle" ? 0 : (12 / prevW) * wIn * PT;
-          pdfDoc.roundedRect(shapeX * PT, shapeY * PT, wIn * PT, hIn * PT, rrPt);
-        }
-        pdfDoc.clip();
-        try {
-          pdfDoc.image(imgBuffer, shapeX * PT, shapeY * PT, {
-            width: wIn * PT,
-            height: hIn * PT,
-          });
-        } catch (e) {
-          console.error("Snapshot embed error:", e.message);
-        }
-        pdfDoc.restore();
-      } else if (backgroundColor && backgroundColor !== "transparent") {
-        // No snapshot: just fill background color
-        const cssToHex = { white: "#ffffff", black: "#000000", red: "#ff0000", blue: "#0000ff", yellow: "#ffff00", green: "#008000", orange: "#ff7f00", purple: "#800080", pink: "#ffc0cb" };
-        const hexColor = cssToHex[backgroundColor] || backgroundColor;
-        pdfDoc.save();
-        if (shape === "circle") {
-          const cx = (shapeX + wIn / 2) * PT;
-          const cy = (shapeY + hIn / 2) * PT;
-          const r = Math.min(wIn, hIn) / 2 * PT;
-          pdfDoc.circle(cx, cy, r);
-        } else {
-          const rrPt = shape === "rectangle" ? 0 : (12 / prevW) * wIn * PT;
-          pdfDoc.roundedRect(shapeX * PT, shapeY * PT, wIn * PT, hIn * PT, rrPt);
-        }
-        pdfDoc.fillColor(hexColor).fill();
-        pdfDoc.restore();
+    if (imgBuffer) {
+      try {
+        pdfDoc.image(imgBuffer, 0, 0, { width: wIn * PT, height: hIn * PT });
+      } catch (e) {
+        console.error("Snapshot embed error:", e.message);
       }
-
-      // Draw cut path (shape outline) — no fill, 0.01" stroke
-      pdfDoc.save();
-      pdfDoc.lineWidth(STROKE_WIDTH);
-      pdfDoc.strokeColor("#000000");
-
-      if (shape === "circle") {
-        const cx = (shapeX + wIn / 2) * PT;
-        const cy = (shapeY + hIn / 2) * PT;
-        const r = Math.min(wIn, hIn) / 2 * PT;
-        pdfDoc.circle(cx, cy, r);
-        pdfDoc.stroke();
-      } else {
-        const rr = shape === "rectangle" ? 0 : 12;
-        pdfDoc.roundedRect(shapeX * PT, shapeY * PT, wIn * PT, hIn * PT, rr);
-        pdfDoc.stroke();
-      }
-      pdfDoc.restore();
-
-      // Bounding box
-      pdfDoc.save();
-      pdfDoc.lineWidth(STROKE_WIDTH);
-      pdfDoc.strokeColor("#000000");
-      pdfDoc.rect(boxX * PT, boxY * PT, boxW * PT, boxH * PT);
-      pdfDoc.stroke();
-      pdfDoc.restore();
-
-      // Weeding box for easier production handling. (Printed decals never
-      // get registration squares — they're not multi-layer aligned cuts.)
-      const weedBuf = 0.5;
-      const weedW = wIn + weedBuf * 2;
-      const weedH = hIn + weedBuf * 2;
-      const weedX = boxX + (boxW - weedW) / 2;
-      const weedY = boxY + (boxH - weedH) / 2;
-
-      pdfDoc.save();
-      pdfDoc.lineWidth(STROKE_WIDTH);
-      pdfDoc.strokeColor("#000000");
-      pdfDoc.rect(weedX * PT, weedY * PT, weedW * PT, weedH * PT);
-      pdfDoc.stroke();
-      pdfDoc.restore();
-
-      // (Printed decals: registration squares intentionally omitted.)
+    } else if (backgroundColor && backgroundColor !== "transparent") {
+      // No snapshot: solid background fill the size of the decal.
+      const cssToHex = { white: "#ffffff", black: "#000000", red: "#ff0000", blue: "#0000ff", yellow: "#ffff00", green: "#008000", orange: "#ff7f00", purple: "#800080", pink: "#ffc0cb" };
+      const hexColor = cssToHex[backgroundColor] || backgroundColor;
+      pdfDoc.rect(0, 0, wIn * PT, hIn * PT).fillColor(hexColor).fill();
     }
 
     pdfDoc.end();
@@ -891,23 +797,22 @@ router.post("/quote", async (req, res) => {
     pdfDoc.moveTo(margin, y).lineTo(pageW - margin, y).strokeColor("#cccccc").lineWidth(1).stroke();
     y += 12;
 
-    // --- TWO COLUMN LAYOUT ---
-    // Left col: specs table  |  Right col: preview image
-    const leftColX = margin;
-    const leftColW = type === "printed-decal" ? 250 : 310;
-    const rightColX = leftColX + leftColW + 20;
-    const rightColW = pageW - rightColX - margin;
-    const rowH = 18;
+    // --- SINGLE COLUMN LAYOUT ---
+    // Specs full-width first, then a centered preview below sized to roughly
+    // 1/3 of the page width. Stacking vertically prevents specs/preview from
+    // running into each other or the divider/total bar.
+    const specsX = margin;
+    const specsW = pageW - margin * 2;
+    const labelW = 150;
+    const rowH = 16;
 
     function specRow(label, value) {
       pdfDoc.fontSize(9).font("Helvetica").fillColor("#777777");
-      pdfDoc.text(label, leftColX, y, { ...opts, width: 130 });
+      pdfDoc.text(label, specsX, y, { ...opts, width: labelW });
       pdfDoc.font("Helvetica-Bold").fillColor("#1a1a1a").fontSize(9);
-      pdfDoc.text(String(value), leftColX + 135, y, { ...opts, width: leftColW - 135 });
+      pdfDoc.text(String(value), specsX + labelW + 10, y, { ...opts, width: specsW - labelW - 10 });
       y += rowH;
     }
-
-    const specsStartY = y;
 
     if (type === "cut-vinyl") {
       specRow("Type", "Cut Vinyl");
@@ -937,17 +842,20 @@ router.post("/quote", async (req, res) => {
       specRow("Unit Price", `$${unitPrice}`);
     }
 
-    // Preview image in right column, aligned to specs start
+    y += 14; // breathing room after specs
+
+    // Centered preview at ~1/3 page width
     if (previewBuffer) {
       try {
-        const previewFitHeight = type === "printed-decal" ? 260 : 180;
-        pdfDoc.image(previewBuffer, rightColX, specsStartY, { fit: [rightColW, previewFitHeight] });
+        const previewBoxW = Math.round((pageW - margin * 2) / 3); // ~1/3 of usable width
+        const previewBoxH = previewBoxW; // square envelope; aspect preserved by fit
+        const previewBoxX = (pageW - previewBoxW) / 2;
+        pdfDoc.image(previewBuffer, previewBoxX, y, { fit: [previewBoxW, previewBoxH] });
+        y += previewBoxH + 14; // advance below the preview with padding
       } catch (e) {
         console.error("Preview image error:", e.message);
       }
     }
-
-    y += 10;
 
     // Divider before total
     pdfDoc.moveTo(margin, y).lineTo(pageW - margin, y).strokeColor("#cccccc").lineWidth(0.5).stroke();
