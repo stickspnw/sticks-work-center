@@ -1404,8 +1404,8 @@ router.post("/cut-vinyl-multi", async (req, res) => {
 
       // Render each row at its provided (xIn, yIn) within the bbox.
       for (const r of rows) {
-        const rxIn = Number(r.xIn || 0) + pad;
-        const ryIn = Number(r.yIn || 0) + pad;
+        const rxIn = Number(r.xIn || 0);
+        const ryIn = Number(r.yIn || 0);
         const rwIn = Number(r.widthIn || 0);
         const rhIn = Number(r.heightIn || 0);
         if (!rwIn || !rhIn) continue;
