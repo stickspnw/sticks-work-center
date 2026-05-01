@@ -586,17 +586,15 @@ router.post("/cut-vinyl", async (req, res) => {
       // the decal has a background, so the cutter can align the two cut
       // files by overlaying their marks. Plain (no-bg) decals skip them.
       if (hasBg) {
+        // Reg marks sit INSIDE the bounding box at 3 corners so they're
+        // always visible and the same on both text and bg cut files.
+        // inset = gap from the box edge to the near edge of the mark square.
         const regSize = 0.25;
-        const regBuf = 0.25; // gap between envelope edge and mark
-        const envW = textWidthIn + bgHaloIn * 2;
-        const envH = hIn + bgHaloIn * 2;
-        // Center envelope around the text content (same center as graphic).
-        const envX = graphicX + graphicW / 2 - envW / 2;
-        const envY = graphicY + graphicH / 2 - envH / 2;
+        const inset = 0.1;
         const regPositions = [
-          { x: envX - regSize - regBuf,       y: envY - regSize - regBuf }, // top-left
-          { x: envX + envW / 2 - regSize / 2, y: envY - regSize - regBuf }, // top-center
-          { x: envX + envW + regBuf,           y: envY - regSize - regBuf }, // top-right
+          { x: boxX + inset,                       y: boxY + inset },                       // top-left
+          { x: boxX + boxW - inset - regSize,      y: boxY + inset },                       // top-right
+          { x: boxX + inset,                       y: boxY + boxH - inset - regSize },      // bottom-left
         ];
         pdfDoc.save();
         pdfDoc.lineWidth(STROKE_WIDTH);
@@ -1384,19 +1382,15 @@ router.post("/cut-vinyl-multi", async (req, res) => {
       // the two cut files by overlaying their marks. Single-layer decals
       // (no bg) don't need them.
       if (emitRegMarks) {
-        // Reg marks sit around the BG envelope (text bbox + halo on each side).
-        // Both layers use the same graphicW/H (= bboxW/bboxH) so graphicX/Y
-        // is identical on both PDFs — marks land at the same physical position.
+        // Reg marks sit INSIDE the bounding box at 3 corners. Both layers
+        // use identical boxW/boxH (graphicW = bboxW for both) so marks land
+        // at the same physical position on the text and bg cut files.
         const regSize = 0.25;
-        const regBuf = 0.25; // gap between envelope edge and mark
-        const envW = bboxW + bgHaloIn * 2;
-        const envH = bboxH + bgHaloIn * 2;
-        const envX = graphicX + graphicW / 2 - envW / 2;
-        const envY = graphicY + graphicH / 2 - envH / 2;
+        const inset = 0.1;
         const regPositions = [
-          { x: envX - regSize - regBuf,          y: envY - regSize - regBuf },           // top-left
-          { x: envX + envW / 2 - regSize / 2,    y: envY - regSize - regBuf },           // top-center
-          { x: envX + envW + regBuf,              y: envY - regSize - regBuf },           // top-right
+          { x: boxX + inset,                       y: boxY + inset },                       // top-left
+          { x: boxX + boxW - inset - regSize,      y: boxY + inset },                       // top-right
+          { x: boxX + inset,                       y: boxY + boxH - inset - regSize },      // bottom-left
         ];
         pdfDoc.save();
         pdfDoc.lineWidth(STROKE_WIDTH);
