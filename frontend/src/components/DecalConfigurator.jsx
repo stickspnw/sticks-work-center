@@ -836,7 +836,16 @@ const DecalConfigurator = () => {
   // Begin a drag on a specific row. The handler stores the starting mouse
   // position and the row's current offset so the move handler can compute a
   // delta in inches.
+  //
+  // NOTE: Click-and-drag positioning is currently DISABLED for cut vinyl
+  // decals — every per-row offset must stay zero so the cut files line up
+  // exactly with the configurator preview (and so the auto-stack layout
+  // matches the W/H values shown to the customer). Returning early here is
+  // the simplest way to neutralize all the existing onMouseDown handlers
+  // and per-row offset math without ripping it out of the file.
   function beginRowDrag(e, rowId, currentOffsetIn) {
+    return; // drag disabled for cut vinyl
+    // eslint-disable-next-line no-unreachable
     e.stopPropagation();
     e.preventDefault();
     setDraggingRow({
@@ -1221,7 +1230,7 @@ const DecalConfigurator = () => {
                         height: `${r.rowHpx}px`,
                         transform: 'translate(-50%, -50%)',
                         zIndex: 2,
-                        cursor: isDragTarget ? 'grabbing' : 'grab',
+                        cursor: 'default',
                         userSelect: 'none',
                       }}
                     >
@@ -1312,7 +1321,7 @@ const DecalConfigurator = () => {
                         ...baseTextStyle,
                         color: r.color,
                         zIndex: 2,
-                        cursor: isDragTarget ? 'grabbing' : 'grab',
+                        cursor: 'default',
                         filter: (hasBackground && strokePx > 0) ? undefined : dropShadow,
                       }}
                     >
