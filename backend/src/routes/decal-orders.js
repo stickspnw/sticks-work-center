@@ -1,7 +1,9 @@
 import { Router } from "express";
 import Stripe from "stripe";
 import fs from "fs/promises";
+import { createReadStream } from "fs";
 import path from "path";
+import crypto from "crypto";
 import { fileURLToPath } from "url";
 import { nextOrderNumber } from "../lib/orderNumber.js";
 import { saveProofFromDataUrl } from "../lib/proofs.js";
@@ -240,6 +242,35 @@ router.post("/checkout", async (req, res) => {
 
 const PENDING_DIR = path.join(__dirname, "../../decal-orders/pending");
 
+// Public route: serves a single pending preview image so Stripe Checkout can
+// embed it on the payment page. Whitelist filenames to UUID-style ids to
+// prevent path traversal.
+router.get("/checkout-preview/:filename", async (req, res) => {
+  try {
+    const fname = String(req.params.filename || "");
+    if (!/^[a-f0-9-]{8,}\.(png|jpg|jpeg|webp)$/i.test(fname)) {
+      return res.status(400).send("Bad filename");
+    }
+    const full = path.join(PENDING_DIR, fname);
+    // Resolve and ensure we're still inside PENDING_DIR.
+    const resolved = path.resolve(full);
+    if (!resolved.startsWith(path.resolve(PENDING_DIR))) {
+      return res.status(400).send("Bad path");
+    }
+    const ext = path.extname(fname).toLowerCase();
+    const mime = ext === ".jpg" || ext === ".jpeg"
+      ? "image/jpeg"
+      : ext === ".webp" ? "image/webp" : "image/png";
+    res.setHeader("Content-Type", mime);
+    res.setHeader("Cache-Control", "public, max-age=86400");
+    createReadStream(resolved)
+      .on("error", () => res.status(404).end())
+      .pipe(res);
+  } catch (e) {
+    res.status(500).send("error");
+  }
+});
+
 function siteOriginFromReq(req) {
   // Prefer x-forwarded-host (behind tunnel/proxy), fall back to Host header
   const proto = (req.headers["x-forwarded-proto"] || req.protocol || "https").toString();
@@ -274,6 +305,30 @@ router.post("/create-checkout-session", async (req, res) => {
     const storefront = await loadStorefrontPricing(req.prisma);
     const breakdown = applyStorefrontPricing(totalPrice, storefront);
 
+    // Pre-save the preview image (if any) under a random id so Stripe
+    // Checkout can fetch it via the public /checkout-preview/:filename route
+    // and display it next to the line item.
+    let previewImageFile = null;
+    let previewImageUrl = null;
+    if (previewImage) {
+      const m = previewImage.match(/^data:(image\/(?:png|jpe?g|webp));base64,(.+)$/i);
+      if (m) {
+        const ext = m[1].includes("jpeg") || m[1].includes("jpg")
+          ? ".jpg"
+          : m[1].includes("webp") ? ".webp" : ".png";
+        await fs.mkdir(PENDING_DIR, { recursive: true });
+        previewImageFile = `${crypto.randomUUID()}${ext}`;
+        await fs.writeFile(
+          path.join(PENDING_DIR, previewImageFile),
+          Buffer.from(m[2], "base64"),
+        );
+        // Stripe requires a publicly reachable HTTPS URL. We still pass the
+        // best-guess origin URL even on http://localhost — Stripe will quietly
+        // ignore it if it can't fetch.
+        previewImageUrl = `${origin}/api/decal-orders/checkout-preview/${previewImageFile}`;
+      }
+    }
+
     const stripeLineItems = [
       {
         quantity: 1,
@@ -285,6 +340,7 @@ router.post("/create-checkout-session", async (req, res) => {
             description: breakdown.minBumpApplied
               ? `Quantity: ${qty} (adjusted to $${storefront.minOrderPrice.toFixed(2)} min order)`
               : `Quantity: ${qty}`,
+            ...(previewImageUrl ? { images: [previewImageUrl] } : {}),
           },
         },
       },
@@ -314,19 +370,10 @@ router.post("/create-checkout-session", async (req, res) => {
       },
     });
 
-    // Persist pending order data keyed by Stripe sessionId
-    await fs.mkdir(PENDING_DIR, { recursive: true });
-    let previewImageFile = null;
-    if (previewImage) {
-      // Save the preview snapshot to a sibling file so the JSON metadata
-      // stays small. We'll re-attach it as a proof during /checkout-success.
-      const m = previewImage.match(/^data:(image\/(?:png|jpe?g|webp|gif));base64,(.+)$/i);
-      if (m) {
-        const ext = m[1].includes("jpeg") || m[1].includes("jpg") ? ".jpg" : ".png";
-        previewImageFile = `${session.id}.preview${ext}`;
-        await fs.writeFile(path.join(PENDING_DIR, previewImageFile), Buffer.from(m[2], "base64"));
-      }
-    }
+    // Persist pending order metadata keyed by Stripe sessionId. The preview
+    // image (if any) was saved to PENDING_DIR earlier so its URL could be
+    // passed to Stripe; we just record the filename here for /checkout-success
+    // to re-attach as a proof.
     await fs.writeFile(
       path.join(PENDING_DIR, `${session.id}.json`),
       JSON.stringify(
