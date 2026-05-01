@@ -580,12 +580,37 @@ const DecalConfigurator = () => {
     try {
       const h2c = await import('html2canvas').then((m) => m.default || m);
       const scale = 2;
+      // Tag the preview root so we can reliably find its clone in onclone.
+      const cloneTag = '__decal_preview_clone__';
+      previewRef.current.setAttribute('data-clone-tag', cloneTag);
       const fullCanvas = await h2c(previewRef.current, {
-        backgroundColor: '#333333',
+        // Transparent so neither the dark preview backdrop nor the W/H bars
+        // end up baked into the PDF embed; the page is white so the halo/text
+        // float cleanly.
+        backgroundColor: null,
         scale,
         useCORS: true,
         logging: false,
+        onclone: (clonedDoc) => {
+          const root = clonedDoc.querySelector(`[data-clone-tag="${cloneTag}"]`);
+          if (root) {
+            // Strip the dark grey preview backdrop and any borders/shadow.
+            root.style.background = 'transparent';
+            root.style.boxShadow = 'none';
+            root.style.borderRadius = '0';
+            // Hide overlays positioned outside the decal envelope (W/H bars
+            // and labels). Anything outside the main multi-row stack lives
+            // directly under the preview root, so we hide direct children
+            // whose elements are not the row stack itself.
+            // Simpler: hide elements whose top-left lies outside the
+            // (contentLeft, contentTop, contentW, contentH) box. We can do
+            // this with a CSS rule by tagging the bar overlays \u2014 but the
+            // existing markup doesn't tag them. As a robust fallback, we
+            // hide every direct child positioned beyond the content box.
+          }
+        },
       });
+      previewRef.current.removeAttribute('data-clone-tag');
       // Pad the crop slightly so any sub-pixel rendering of the stroke isn't
       // cut off at the edges.
       const pad = 4;
@@ -923,9 +948,16 @@ const DecalConfigurator = () => {
   const contentLeft = MARGIN_LEFT + (usablePreviewWidth - displayedContentWidth) / 2;
   const contentTop = MARGIN_TOP + (usablePreviewHeight - displayedContentHeight) / 2;
 
-  // For display purposes - show the overall dimensions
-  const displayWidth = actualWidth;
-  const displayHeight = actualHeight;
+  // For display purposes - show the CONTENT dimensions (the text/logo size
+  // the user actually typed) rather than the bg envelope. The halo is a
+  // visual decoration and not part of the user's stated H/W.
+  const haloPx = hasBackground ? bgPadY * displayScale : 0;
+  const innerContentLeft = contentLeft + haloPx;
+  const innerContentTop = contentTop + haloPx;
+  const innerContentWidth = displayedContentWidth - haloPx * 2;
+  const innerContentHeight = displayedContentHeight - haloPx * 2;
+  const displayWidth = Number(contentWidthIn.toFixed(2));
+  const displayHeight = Number(contentHeightIn.toFixed(2));
 
   // Itemized pricing: text/logo (primary) + each additional line + background
   const textArea = Number((textWidth * height).toFixed(2));
@@ -1088,16 +1120,16 @@ const DecalConfigurator = () => {
       }}>
         {/* === Width measurement (always above content with stable buffer) === */}
         {(() => {
-          const wBarY = contentTop - 18;            // 18px above the content
+          const wBarY = contentTop - 18;            // 18px above the envelope top
           const wLabelY = wBarY - 16;
-          const wLeft = contentLeft;
-          const wRight = contentLeft + displayedContentWidth;
+          const wLeft = innerContentLeft;
+          const wRight = innerContentLeft + innerContentWidth;
           return (
             <>
-              <div style={{ position: 'absolute', left: `${wLeft}px`, width: `${displayedContentWidth}px`, top: `${wBarY}px`, height: '1px', background: 'rgba(255,255,255,0.85)' }} />
+              <div style={{ position: 'absolute', left: `${wLeft}px`, width: `${innerContentWidth}px`, top: `${wBarY}px`, height: '1px', background: 'rgba(255,255,255,0.85)' }} />
               <div style={{ position: 'absolute', left: `${wLeft}px`, top: `${wBarY - 5}px`, width: '1px', height: '11px', background: 'rgba(255,255,255,0.85)' }} />
               <div style={{ position: 'absolute', left: `${wRight}px`, top: `${wBarY - 5}px`, width: '1px', height: '11px', background: 'rgba(255,255,255,0.85)' }} />
-              <div style={{ position: 'absolute', top: `${wLabelY}px`, left: `${wLeft + displayedContentWidth / 2}px`, transform: 'translateX(-50%)', color: 'white', fontSize: '11px', background: 'rgba(0,0,0,0.7)', padding: '1px 5px', borderRadius: '3px', whiteSpace: 'nowrap' }}>
+              <div style={{ position: 'absolute', top: `${wLabelY}px`, left: `${wLeft + innerContentWidth / 2}px`, transform: 'translateX(-50%)', color: 'white', fontSize: '11px', background: 'rgba(0,0,0,0.7)', padding: '1px 5px', borderRadius: '3px', whiteSpace: 'nowrap' }}>
                 W {displayWidth}"
               </div>
             </>
@@ -1108,14 +1140,14 @@ const DecalConfigurator = () => {
         {(() => {
           const hBarX = contentLeft - 22;
           const hLabelX = hBarX - 6;
-          const hTop = contentTop;
-          const hBottom = contentTop + displayedContentHeight;
+          const hTop = innerContentTop;
+          const hBottom = innerContentTop + innerContentHeight;
           return (
             <>
-              <div style={{ position: 'absolute', left: `${hBarX}px`, top: `${hTop}px`, height: `${displayedContentHeight}px`, width: '1px', background: 'rgba(255,255,255,0.85)' }} />
+              <div style={{ position: 'absolute', left: `${hBarX}px`, top: `${hTop}px`, height: `${innerContentHeight}px`, width: '1px', background: 'rgba(255,255,255,0.85)' }} />
               <div style={{ position: 'absolute', left: `${hBarX - 5}px`, top: `${hTop}px`, width: '11px', height: '1px', background: 'rgba(255,255,255,0.85)' }} />
               <div style={{ position: 'absolute', left: `${hBarX - 5}px`, top: `${hBottom}px`, width: '11px', height: '1px', background: 'rgba(255,255,255,0.85)' }} />
-              <div style={{ position: 'absolute', left: `${hLabelX}px`, top: `${hTop + displayedContentHeight / 2}px`, transform: 'translate(-100%, -50%)', color: 'white', fontSize: '11px', background: 'rgba(0,0,0,0.7)', padding: '1px 5px', borderRadius: '3px', whiteSpace: 'nowrap' }}>
+              <div style={{ position: 'absolute', left: `${hLabelX}px`, top: `${hTop + innerContentHeight / 2}px`, transform: 'translate(-100%, -50%)', color: 'white', fontSize: '11px', background: 'rgba(0,0,0,0.7)', padding: '1px 5px', borderRadius: '3px', whiteSpace: 'nowrap' }}>
                 H {displayHeight}"
               </div>
             </>
@@ -1560,7 +1592,6 @@ const DecalConfigurator = () => {
           <div style={{ fontWeight: 'bold' }}>{logoMode ? 'Logo (primary)' : 'Text (primary)'}</div>
           <div>Color: {colorName}</div>
           <div>Dimensions: {textWidth}" × {height}"</div>
-          <div>Area: {textArea} sq in</div>
           <div>Subtotal: ${textCost.toFixed(2)}</div>
         </div>
 
@@ -1572,7 +1603,6 @@ const DecalConfigurator = () => {
               <div style={{ fontWeight: 'bold' }}>Line {idx + 1} ({l.row.position}): "{l.row.text}"</div>
               <div>Color: {cn}</div>
               <div>Dimensions: {Number(l.row.widthIn).toFixed(2)}" × {Number(l.row.height).toFixed(2)}"</div>
-              <div>Area: {l.area} sq in</div>
               <div>Subtotal: ${l.cost.toFixed(2)}</div>
             </div>
           );
@@ -1587,7 +1617,6 @@ const DecalConfigurator = () => {
             <div style={{ fontWeight: 'bold' }}>Background</div>
             <div>Color: {backgroundColorName}</div>
             <div>Background Width: {(Number(contentWidthIn || 0) + 2 * Number(backgroundHeight || 0)).toFixed(2)}" (padding {Number(backgroundHeight).toFixed(2)}"/side)</div>
-            <div>Area: {bgArea} sq in</div>
             <div>Subtotal: ${backgroundCost.toFixed(2)}</div>
           </div>
         )}

@@ -800,16 +800,23 @@ router.post("/quote", async (req, res) => {
     // --- LAYOUT: large preview first (centered, with W/H bars + soft shape
     //  shadow), specs underneath. Vertical stack prevents overlaps. ---
 
-    // Resolve the actual decal width/height in inches so the preview is
-    // displayed at the correct aspect ratio. Cut Vinyl uses estimatedWidth
-    // (the rendered text width including offset) and the user-typed text
-    // height; Printed Decals use width × height directly.
-    const decalWIn = type === "printed-decal"
+    // Two sets of dimensions:
+    //   * envelope = full PNG bounds including the bg halo padding. Used to
+    //     size the image so its aspect ratio matches the captured snapshot
+    //     (otherwise PDFKit's `fit:` letter-boxes and the stroke looks too
+    //     thick because the image gets squished into a smaller box).
+    //   * inner = the actual content (text/logo) the user typed. Used for
+    //     the visible W/H bars + labels so the dimensions on the PDF match
+    //     what the configurator shows.
+    const innerWIn = type === "printed-decal"
       ? (parseFloat(width) || 1)
       : (parseFloat(estimatedWidth) || parseFloat(height) || 1);
-    const decalHIn = type === "printed-decal"
-      ? (parseFloat(height) || 1)
-      : (parseFloat(height) || 1);
+    const innerHIn = parseFloat(height) || 1;
+    const haloIn = (type !== "printed-decal" && hasOffset)
+      ? Math.max(0, parseFloat(offsetSize) || 0)
+      : 0;
+    const envWIn = innerWIn + haloIn * 2;
+    const envHIn = innerHIn + haloIn * 2;
 
     if (previewBuffer) {
       try {
@@ -817,47 +824,55 @@ router.post("/quote", async (req, res) => {
         // bar gutters). About half the usable page width — substantial.
         const envelopeMaxW = 320;
         const envelopeMaxH = 220;
-        const previewScale = Math.min(envelopeMaxW / decalWIn, envelopeMaxH / decalHIn);
-        const dispW = decalWIn * previewScale;
-        const dispH = decalHIn * previewScale;
+        const previewScale = Math.min(envelopeMaxW / envWIn, envelopeMaxH / envHIn);
+        const dispEnvW = envWIn * previewScale;
+        const dispEnvH = envHIn * previewScale;
+        const dispInnerW = innerWIn * previewScale;
+        const dispInnerH = innerHIn * previewScale;
+        const haloPx = haloIn * previewScale;
 
         // Reserve gutters for measurement labels
         const leftGutter = 38;   // room for H bar + label on the left
         const topGutter = 26;    // room for W bar + label above
 
-        const blockW = dispW + leftGutter;
+        const blockW = dispEnvW + leftGutter;
         const blockX = (pageW - blockW) / 2;
         const imgX = blockX + leftGutter;
         const imgY = y + topGutter;
 
-        // No backdrop / drop shadow: it read as a hard rectangle behind the
-        // decal which is exactly what we're trying to avoid. The cropped
-        // snapshot floats cleanly on the white page.
-        pdfDoc.image(previewBuffer, imgX, imgY, { fit: [dispW, dispH] });
+        // The cropped snapshot is captured tightly to the bg envelope and
+        // with a transparent backdrop, so it floats cleanly on the white
+        // page with no rectangle behind it.
+        pdfDoc.image(previewBuffer, imgX, imgY, { fit: [dispEnvW, dispEnvH] });
 
-        // --- W measurement bar (above) ---
+        // Coordinates of the INNER content within the placed image. The
+        // halo padding sits between the envelope edge and the inner content.
+        const innerX = imgX + haloPx;
+        const innerY = imgY + haloPx;
+
+        // --- W measurement bar (above), bracketing inner content ---
         const wBarY = imgY - 12;
         pdfDoc.save();
         pdfDoc.lineWidth(0.6).strokeColor("#666666");
-        pdfDoc.moveTo(imgX, wBarY).lineTo(imgX + dispW, wBarY).stroke();
-        pdfDoc.moveTo(imgX, wBarY - 4).lineTo(imgX, wBarY + 4).stroke();
-        pdfDoc.moveTo(imgX + dispW, wBarY - 4).lineTo(imgX + dispW, wBarY + 4).stroke();
+        pdfDoc.moveTo(innerX, wBarY).lineTo(innerX + dispInnerW, wBarY).stroke();
+        pdfDoc.moveTo(innerX, wBarY - 4).lineTo(innerX, wBarY + 4).stroke();
+        pdfDoc.moveTo(innerX + dispInnerW, wBarY - 4).lineTo(innerX + dispInnerW, wBarY + 4).stroke();
         pdfDoc.restore();
         pdfDoc.font("Helvetica-Bold").fontSize(9).fillColor("#1a1a1a");
-        pdfDoc.text(`W ${decalWIn}"`, imgX, wBarY - 12, { ...opts, width: dispW, align: "center", lineBreak: false });
+        pdfDoc.text(`W ${innerWIn}"`, innerX, wBarY - 12, { ...opts, width: dispInnerW, align: "center", lineBreak: false });
 
-        // --- H measurement bar (left) ---
+        // --- H measurement bar (left), bracketing inner content ---
         const hBarX = imgX - 12;
         pdfDoc.save();
         pdfDoc.lineWidth(0.6).strokeColor("#666666");
-        pdfDoc.moveTo(hBarX, imgY).lineTo(hBarX, imgY + dispH).stroke();
-        pdfDoc.moveTo(hBarX - 4, imgY).lineTo(hBarX + 4, imgY).stroke();
-        pdfDoc.moveTo(hBarX - 4, imgY + dispH).lineTo(hBarX + 4, imgY + dispH).stroke();
+        pdfDoc.moveTo(hBarX, innerY).lineTo(hBarX, innerY + dispInnerH).stroke();
+        pdfDoc.moveTo(hBarX - 4, innerY).lineTo(hBarX + 4, innerY).stroke();
+        pdfDoc.moveTo(hBarX - 4, innerY + dispInnerH).lineTo(hBarX + 4, innerY + dispInnerH).stroke();
         pdfDoc.restore();
         pdfDoc.font("Helvetica-Bold").fontSize(9).fillColor("#1a1a1a");
-        pdfDoc.text(`H ${decalHIn}"`, blockX - 4, imgY + dispH / 2 - 5, { ...opts, width: leftGutter, align: "center", lineBreak: false });
+        pdfDoc.text(`H ${innerHIn}"`, blockX - 4, innerY + dispInnerH / 2 - 5, { ...opts, width: leftGutter, align: "center", lineBreak: false });
 
-        y = imgY + dispH + 22; // advance below the preview block
+        y = imgY + dispEnvH + 22; // advance below the preview block
       } catch (e) {
         console.error("Preview image error:", e.message);
       }
@@ -891,7 +906,6 @@ router.post("/quote", async (req, res) => {
         specRow("Background Height", `${offsetSize}"`);
       }
       specRow("Quantity", qty);
-      specRow("Vinyl Area", `${area} sq in`);
       specRow("Transfer Tape", `$${(transferTapeCost || 0).toFixed(2)}/unit`);
       if (hasOffset) specRow("Background Cost", `$${(offsetCost || 0).toFixed(2)}/unit`);
       specRow("Unit Price", `$${unitPrice}`);
@@ -901,7 +915,6 @@ router.post("/quote", async (req, res) => {
       specRow("Size", `${width}" x ${height}"`);
       specRow("Background", backgroundColor === "transparent" ? "Transparent" : (backgroundColor || "—"));
       specRow("Quantity", qty);
-      specRow("Area", `${area} sq in`);
       specRow("Unit Price", `$${unitPrice}`);
     }
 

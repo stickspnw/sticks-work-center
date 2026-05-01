@@ -409,7 +409,6 @@ export default function PrintedDecals() {
           <div>Shape: <strong>{shape}</strong></div>
           <div>Background: <strong>{backgroundColor === "transparent" ? "Transparent" : backgroundColor.charAt(0).toUpperCase() + backgroundColor.slice(1)}</strong></div>
           <div>Size: <strong>{width}" x {height}"</strong></div>
-          <div>Area: <strong>{area} sq in</strong></div>
           <div>Qty: <strong>{qty}</strong></div>
           <div>Price per unit: <strong>${(area * PRICE_PER_SQ_INCH).toFixed(2)}</strong></div>
           <div>Subtotal: <strong>${itemsSubtotal.toFixed(2)}</strong></div>
