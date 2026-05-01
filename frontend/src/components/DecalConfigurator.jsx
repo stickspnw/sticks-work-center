@@ -411,6 +411,8 @@ const DecalConfigurator = () => {
             unitPrice: Number(unitPrice),
             totalPrice: Number(totalPrice),
             qty: Number(qty),
+            widthIn: actualWidth,
+            heightIn: actualHeight,
           },
           description,
           previewImage,
@@ -447,6 +449,8 @@ const DecalConfigurator = () => {
         unitPrice: Number(unitPrice),
         totalPrice: Number(totalPrice),
         qty: Number(qty),
+        widthIn: actualWidth,
+        heightIn: actualHeight,
       };
 
       const previewImage = await capturePreviewSnapshot();

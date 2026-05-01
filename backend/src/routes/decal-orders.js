@@ -81,6 +81,8 @@ router.post("/checkout", async (req, res) => {
     const qty = Math.max(1, parseInt(pricing.qty, 10) || 1);
     const unitPrice = Number(pricing.unitPrice || 0);
     const totalPrice = Number(pricing.totalPrice || (unitPrice * qty));
+    const decalWidthIn = pricing.widthIn != null ? Number(pricing.widthIn) || null : null;
+    const decalHeightIn = pricing.heightIn != null ? Number(pricing.heightIn) || null : null;
 
     if (!Number.isFinite(totalPrice) || totalPrice <= 0) {
       return res.status(400).json({ error: "Invalid total price" });
@@ -145,6 +147,8 @@ router.post("/checkout", async (req, res) => {
         qty,
         lineTotal: Number((unitPrice * qty).toFixed(2)),
         isPriceOverridden: false,
+        widthIn: decalWidthIn,
+        heightIn: decalHeightIn,
       },
     ];
     if (breakdown.minBumpApplied) {
@@ -392,6 +396,8 @@ router.post("/checkout-success", async (req, res) => {
     const totalPrice = Number(pending.pricing?.totalPrice || 0);
     const qty = Math.max(1, parseInt(pending.pricing?.qty, 10) || 1);
     const unitPrice = Number(pending.pricing?.unitPrice || (totalPrice / qty));
+    const decalWidthIn = pending.pricing?.widthIn != null ? Number(pending.pricing.widthIn) || null : null;
+    const decalHeightIn = pending.pricing?.heightIn != null ? Number(pending.pricing.heightIn) || null : null;
 
     const name = String(customerInput.name || "").trim() || "Decal Customer";
     const email = customerInput.email ? String(customerInput.email).trim() : null;
@@ -419,6 +425,8 @@ router.post("/checkout-success", async (req, res) => {
         qty,
         lineTotal: Number((unitPrice * qty).toFixed(2)),
         isPriceOverridden: false,
+        widthIn: decalWidthIn,
+        heightIn: decalHeightIn,
       },
     ];
     if (breakdown.minBumpApplied) {
