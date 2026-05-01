@@ -618,7 +618,9 @@ router.post("/cut-vinyl", async (req, res) => {
         pdfDoc.lineWidth(offsetIn * 2 * PT);
         pdfDoc.strokeColor("#000000");
         pdfDoc.fillColor("#000000");
-        pdfDoc.lineJoin("round");
+        // Sharp corners (matches the preview, which traces glyph contours).
+        pdfDoc.lineJoin("miter");
+        pdfDoc.miterLimit(10);
         drawSvgPath(pdfDoc, svgPath);
         pdfDoc.fillAndStroke();
         pdfDoc.restore();
@@ -1318,7 +1320,9 @@ router.post("/cut-vinyl-multi", async (req, res) => {
           pdfDoc.lineWidth(offsetIn * 2 * PT);
           pdfDoc.strokeColor("#000000");
           pdfDoc.fillColor("#000000");
-          pdfDoc.lineJoin("round");
+          // Sharp corners (matches the preview, which traces glyph contours).
+          pdfDoc.lineJoin("miter");
+          pdfDoc.miterLimit(10);
           drawSvgPath(pdfDoc, svgPath);
           pdfDoc.fillAndStroke();
           pdfDoc.restore();
