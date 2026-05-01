@@ -797,10 +797,90 @@ router.post("/quote", async (req, res) => {
     pdfDoc.moveTo(margin, y).lineTo(pageW - margin, y).strokeColor("#cccccc").lineWidth(1).stroke();
     y += 12;
 
-    // --- SINGLE COLUMN LAYOUT ---
-    // Specs full-width first, then a centered preview below sized to roughly
-    // 1/3 of the page width. Stacking vertically prevents specs/preview from
-    // running into each other or the divider/total bar.
+    // --- LAYOUT: large preview first (centered, with W/H bars + soft shape
+    //  shadow), specs underneath. Vertical stack prevents overlaps. ---
+
+    // Resolve the actual decal width/height in inches so the preview is
+    // displayed at the correct aspect ratio. Cut Vinyl uses estimatedWidth
+    // (the rendered text width including offset) and the user-typed text
+    // height; Printed Decals use width × height directly.
+    const decalWIn = type === "printed-decal"
+      ? (parseFloat(width) || 1)
+      : (parseFloat(estimatedWidth) || parseFloat(height) || 1);
+    const decalHIn = type === "printed-decal"
+      ? (parseFloat(height) || 1)
+      : (parseFloat(height) || 1);
+
+    if (previewBuffer) {
+      try {
+        // Envelope reserved for the preview image (NOT including measurement
+        // bar gutters). About half the usable page width — substantial.
+        const envelopeMaxW = 320;
+        const envelopeMaxH = 220;
+        const previewScale = Math.min(envelopeMaxW / decalWIn, envelopeMaxH / decalHIn);
+        const dispW = decalWIn * previewScale;
+        const dispH = decalHIn * previewScale;
+
+        // Reserve gutters for measurement labels
+        const leftGutter = 38;   // room for H bar + label on the left
+        const topGutter = 26;    // room for W bar + label above
+
+        const blockW = dispW + leftGutter;
+        const blockX = (pageW - blockW) / 2;
+        const imgX = blockX + leftGutter;
+        const imgY = y + topGutter;
+
+        // Soft drop shadow in the decal's shape (offset down-right, low opacity).
+        // This replaces the prior flat rectangle border for a "lifted" look.
+        const sOff = 5;
+        pdfDoc.save();
+        pdfDoc.fillColor("#000000", 0.15);
+        if (type === "printed-decal" && shape === "circle") {
+          const r = Math.min(dispW, dispH) / 2;
+          pdfDoc.circle(imgX + dispW / 2 + sOff, imgY + dispH / 2 + sOff, r);
+          pdfDoc.fill();
+        } else if (type === "printed-decal" && (shape === "rounded" || shape === "rounded-rectangle")) {
+          pdfDoc.roundedRect(imgX + sOff, imgY + sOff, dispW, dispH, 8);
+          pdfDoc.fill();
+        } else {
+          // Default: rectangular decal envelope (printed rect + cut vinyl)
+          pdfDoc.rect(imgX + sOff, imgY + sOff, dispW, dispH);
+          pdfDoc.fill();
+        }
+        pdfDoc.restore();
+
+        // The decal image itself (cropped snapshot from the frontend).
+        pdfDoc.image(previewBuffer, imgX, imgY, { fit: [dispW, dispH] });
+
+        // --- W measurement bar (above) ---
+        const wBarY = imgY - 12;
+        pdfDoc.save();
+        pdfDoc.lineWidth(0.6).strokeColor("#666666");
+        pdfDoc.moveTo(imgX, wBarY).lineTo(imgX + dispW, wBarY).stroke();
+        pdfDoc.moveTo(imgX, wBarY - 4).lineTo(imgX, wBarY + 4).stroke();
+        pdfDoc.moveTo(imgX + dispW, wBarY - 4).lineTo(imgX + dispW, wBarY + 4).stroke();
+        pdfDoc.restore();
+        pdfDoc.font("Helvetica-Bold").fontSize(9).fillColor("#1a1a1a");
+        pdfDoc.text(`W ${decalWIn}"`, imgX, wBarY - 12, { ...opts, width: dispW, align: "center", lineBreak: false });
+
+        // --- H measurement bar (left) ---
+        const hBarX = imgX - 12;
+        pdfDoc.save();
+        pdfDoc.lineWidth(0.6).strokeColor("#666666");
+        pdfDoc.moveTo(hBarX, imgY).lineTo(hBarX, imgY + dispH).stroke();
+        pdfDoc.moveTo(hBarX - 4, imgY).lineTo(hBarX + 4, imgY).stroke();
+        pdfDoc.moveTo(hBarX - 4, imgY + dispH).lineTo(hBarX + 4, imgY + dispH).stroke();
+        pdfDoc.restore();
+        pdfDoc.font("Helvetica-Bold").fontSize(9).fillColor("#1a1a1a");
+        pdfDoc.text(`H ${decalHIn}"`, blockX - 4, imgY + dispH / 2 - 5, { ...opts, width: leftGutter, align: "center", lineBreak: false });
+
+        y = imgY + dispH + 22; // advance below the preview block
+      } catch (e) {
+        console.error("Preview image error:", e.message);
+      }
+    }
+
+    // --- Specs (full width) below the preview ---
     const specsX = margin;
     const specsW = pageW - margin * 2;
     const labelW = 150;
@@ -842,20 +922,7 @@ router.post("/quote", async (req, res) => {
       specRow("Unit Price", `$${unitPrice}`);
     }
 
-    y += 14; // breathing room after specs
-
-    // Centered preview at ~1/3 page width
-    if (previewBuffer) {
-      try {
-        const previewBoxW = Math.round((pageW - margin * 2) / 3); // ~1/3 of usable width
-        const previewBoxH = previewBoxW; // square envelope; aspect preserved by fit
-        const previewBoxX = (pageW - previewBoxW) / 2;
-        pdfDoc.image(previewBuffer, previewBoxX, y, { fit: [previewBoxW, previewBoxH] });
-        y += previewBoxH + 14; // advance below the preview with padding
-      } catch (e) {
-        console.error("Preview image error:", e.message);
-      }
-    }
+    y += 14; // breathing room before total bar
 
     // Divider before total
     pdfDoc.moveTo(margin, y).lineTo(pageW - margin, y).strokeColor("#cccccc").lineWidth(0.5).stroke();
