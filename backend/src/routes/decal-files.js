@@ -412,6 +412,32 @@ async function generateLogoCutFile(req, res, { selectedColor, height, width, qty
   }
 }
 
+// GET /api/decal-files/font/:name?variant=regular|bold|italic|bolditalic
+// Streams the underlying TTF file for the given font name. Used by the
+// configurator to register @font-face rules so browsers on phones / tablets
+// (which don't have the Windows system fonts installed) can still render the
+// decal preview in the correct typeface.
+router.get("/font/:name", (req, res) => {
+  try {
+    const fontName = String(req.params.name || "");
+    if (!FONT_MAP[fontName]) return res.status(404).send("Font not found");
+    const variant = String(req.query.variant || "regular").toLowerCase();
+    const isBold = variant.includes("bold");
+    const isItalic = variant.includes("italic");
+    const fileName = getFontFile(fontName, isBold, isItalic);
+    const filePath = path.join(FONT_DIR, fileName);
+    const buf = fs.readFileSync(filePath);
+    res.setHeader("Content-Type", "font/ttf");
+    res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+    // Font files don't need credentials; allow any origin so CDN/proxy setups
+    // stay friction-free.
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.send(buf);
+  } catch (e) {
+    res.status(404).send("Font file not found");
+  }
+});
+
 // POST /api/decal-files/cut-vinyl
 router.post("/cut-vinyl", async (req, res) => {
   try {

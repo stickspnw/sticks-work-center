@@ -12,7 +12,42 @@ const FONT_LIST = [
   "Courier New", "Georgia", "Verdana", "Trebuchet MS", "Lucida Console", "Futura"
 ];
 
+// Inject a <style> block with @font-face rules for every font in FONT_LIST.
+// The backend serves each TTF at /api/decal-files/font/:name?variant=... so
+// the browser will download the real font on-demand the first time the
+// preview needs it (font-display:swap). This makes the configurator render
+// correctly on phones/tablets that don't have the Windows system fonts
+// installed locally.
+const DECAL_FONTS_STYLE_ID = "decal-configurator-fonts";
+function ensureDecalFontsStylesheet() {
+  if (typeof document === "undefined") return;
+  if (document.getElementById(DECAL_FONTS_STYLE_ID)) return;
+  const variants = [
+    { variant: "regular", weight: "normal", style: "normal" },
+    { variant: "bold", weight: "bold", style: "normal" },
+    { variant: "italic", weight: "normal", style: "italic" },
+    { variant: "bolditalic", weight: "bold", style: "italic" },
+  ];
+  const css = FONT_LIST.flatMap((name) => {
+    const enc = encodeURIComponent(name);
+    return variants.map(
+      (v) =>
+        `@font-face{font-family:"${name}";` +
+        `src:url("/api/decal-files/font/${enc}?variant=${v.variant}") format("truetype");` +
+        `font-weight:${v.weight};font-style:${v.style};font-display:swap;}`
+    );
+  }).join("");
+  const el = document.createElement("style");
+  el.id = DECAL_FONTS_STYLE_ID;
+  el.textContent = css;
+  document.head.appendChild(el);
+}
+
 const DecalConfigurator = () => {
+  // Register the @font-face rules once on first render so the preview can
+  // render decals in the real typeface on any device.
+  if (typeof document !== "undefined") ensureDecalFontsStylesheet();
+
   const [text, setText] = useState('YOUR TEXT');
   const [height, setHeight] = useState(2);
   const [qty, setQty] = useState(1);
