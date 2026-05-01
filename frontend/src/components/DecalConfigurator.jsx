@@ -1156,23 +1156,13 @@ const DecalConfigurator = () => {
             return dirs.map(([dx, dy]) => `drop-shadow(${dx}px ${dy}px 0 ${col})`).join(' ');
           };
 
+          // Soft drop shadow applied to whichever layer is on the bottom
+          // (halo when present, otherwise the foreground itself). This makes
+          // the decal look lifted off the page.
+          const dropShadow = `drop-shadow(2px 4px 3px rgba(0,0,0,0.45))`;
+
           return (
             <>
-              {hasBackground && strokePx > 0 && (
-                // Single solid backing rectangle that wraps the entire content
-                // stack. This matches real cut-vinyl backing: one closed
-                // rectangle, no cut-outs around individual glyphs/logo edges.
-                <div style={{
-                  position: 'absolute',
-                  left: `${contentLeft}px`,
-                  top: `${contentTop}px`,
-                  width: `${displayedContentWidth}px`,
-                  height: `${displayedContentHeight}px`,
-                  backgroundColor: backgroundColor,
-                  zIndex: 0,
-                  pointerEvents: 'none',
-                }} />
-              )}
               {rowLayout.map((r) => {
                 const rowCenterY = r.top + r.rowHpx / 2 + r.offY;
                 const rowCenterX = centerX + r.offX;
@@ -1197,6 +1187,40 @@ const DecalConfigurator = () => {
                         userSelect: 'none',
                       }}
                     >
+                      {hasBackground && strokePx > 0 && (
+                        // Halo: stack offset masked copies of the logo
+                        // silhouette tinted in the background color. A drop
+                        // shadow goes on this lowest layer.
+                        <>
+                          {(() => {
+                            const angles = 12;
+                            const steps = Math.max(2, Math.min(5, Math.ceil(strokePx / 4)));
+                            const layers = [];
+                            for (let s = 1; s <= steps; s++) {
+                              const radius = (s / steps) * strokePx;
+                              for (let a = 0; a < angles; a++) {
+                                const theta = (a / angles) * Math.PI * 2;
+                                const dx = Math.cos(theta) * radius;
+                                const dy = Math.sin(theta) * radius;
+                                const isOutermost = s === steps && a === 0;
+                                layers.push(
+                                  <div key={`halo-${s}-${a}`} style={{
+                                    position: 'absolute', inset: 0, pointerEvents: 'none',
+                                    WebkitMaskImage: `url(${r.logoSelectedColor.processedImage})`,
+                                    maskImage: `url(${r.logoSelectedColor.processedImage})`,
+                                    WebkitMaskSize: '100% 100%', maskSize: '100% 100%',
+                                    WebkitMaskRepeat: 'no-repeat', maskRepeat: 'no-repeat',
+                                    backgroundColor: backgroundColor,
+                                    transform: `translate(${dx}px, ${dy}px)`,
+                                    filter: isOutermost ? dropShadow : undefined,
+                                  }} />
+                                );
+                              }
+                            }
+                            return layers;
+                          })()}
+                        </>
+                      )}
                       {/* Logo recolored to chosen vinyl color via CSS mask */}
                       <div style={{
                         position: 'absolute', inset: 0,
@@ -1205,6 +1229,9 @@ const DecalConfigurator = () => {
                         WebkitMaskSize: '100% 100%', maskSize: '100% 100%',
                         WebkitMaskRepeat: 'no-repeat', maskRepeat: 'no-repeat',
                         backgroundColor: vinylColor,
+                        // When there's no halo, the logo itself is the
+                        // bottom layer — drop the shadow on it directly.
+                        filter: (hasBackground && strokePx > 0) ? undefined : dropShadow,
                       }} />
                     </div>
                   );
@@ -1228,9 +1255,32 @@ const DecalConfigurator = () => {
                 };
                 return (
                   <React.Fragment key={r.id}>
+                    {hasBackground && strokePx > 0 && (
+                      // Stroke layer behind the text — a thick same-color
+                      // outline reads as a halo around each glyph. Drop
+                      // shadow goes on this lowest layer.
+                      <div style={{
+                        ...baseTextStyle,
+                        zIndex: 1,
+                        color: backgroundColor,
+                        WebkitTextStrokeWidth: `${strokePx * 2}px`,
+                        WebkitTextStrokeColor: backgroundColor,
+                        pointerEvents: 'none',
+                        filter: dropShadow,
+                      }}>
+                        {r.text}
+                      </div>
+                    )}
                     <div
                       onMouseDown={(e) => beginRowDrag(e, r.id, { x: r.id === '__primary__' ? primaryOffsetIn.x : Number(r.offsetXIn || 0), y: r.id === '__primary__' ? primaryOffsetIn.y : Number(r.offsetYIn || 0) })}
-                      style={{ ...baseTextStyle, color: r.color, zIndex: 2, cursor: isDragTarget ? 'grabbing' : 'grab' }}
+                      style={{
+                        ...baseTextStyle,
+                        color: r.color,
+                        zIndex: 2,
+                        cursor: isDragTarget ? 'grabbing' : 'grab',
+                        // No halo? Then the text itself is the bottom layer.
+                        filter: (hasBackground && strokePx > 0) ? undefined : dropShadow,
+                      }}
                     >
                       {r.text}
                     </div>
