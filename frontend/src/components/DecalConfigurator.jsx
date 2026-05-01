@@ -557,30 +557,37 @@ const DecalConfigurator = () => {
 
   // Capture the preview area as a base64 PNG, cropped to the actual decal
   // content rect so the resulting image's aspect ratio matches the real
-  // physical decal (not the 460×220 preview box). This is what gets embedded
-  // in the quote PDF and attached as the order proof.
+  // physical decal (not the 460×220 preview box, which would include the
+  // W/H measurement bars and dark margins).
+  //
+  // We capture the full element, then crop to a second canvas. html2canvas's
+  // x/y/width/height options behave inconsistently with absolutely-positioned
+  // children, so manual cropping is more reliable.
   async function capturePreviewSnapshot() {
     if (!previewRef.current) return null;
     try {
       const h2c = await import('html2canvas').then((m) => m.default || m);
+      const scale = 2;
+      const fullCanvas = await h2c(previewRef.current, {
+        backgroundColor: '#333333',
+        scale,
+        useCORS: true,
+        logging: false,
+      });
       // Pad the crop slightly so any sub-pixel rendering of the stroke isn't
       // cut off at the edges.
       const pad = 4;
-      const cropX = Math.max(0, Math.floor(contentLeft - pad));
-      const cropY = Math.max(0, Math.floor(contentTop - pad));
-      const cropW = Math.ceil(displayedContentWidth + pad * 2);
-      const cropH = Math.ceil(displayedContentHeight + pad * 2);
-      const canvas = await h2c(previewRef.current, {
-        backgroundColor: '#333333',
-        scale: 2,
-        useCORS: true,
-        logging: false,
-        x: cropX,
-        y: cropY,
-        width: cropW,
-        height: cropH,
-      });
-      return canvas.toDataURL('image/png');
+      const sx = Math.max(0, Math.floor((contentLeft - pad) * scale));
+      const sy = Math.max(0, Math.floor((contentTop - pad) * scale));
+      const sw = Math.min(fullCanvas.width - sx, Math.ceil((displayedContentWidth + pad * 2) * scale));
+      const sh = Math.min(fullCanvas.height - sy, Math.ceil((displayedContentHeight + pad * 2) * scale));
+      if (sw <= 0 || sh <= 0) return fullCanvas.toDataURL('image/png');
+      const cropped = document.createElement('canvas');
+      cropped.width = sw;
+      cropped.height = sh;
+      const ctx = cropped.getContext('2d');
+      ctx.drawImage(fullCanvas, sx, sy, sw, sh, 0, 0, sw, sh);
+      return cropped.toDataURL('image/png');
     } catch (e) {
       console.warn('Preview snapshot failed:', e?.message || e);
       return null;

@@ -471,22 +471,25 @@ export default function PrintedDecals() {
               let previewImage = null;
               if (previewRef.current) {
                 const h2c = await import('html2canvas').then(m => m.default || m);
-                // Crop to the actual decal mask rect so the embedded image's
-                // aspect ratio matches the real (e.g. 6"×4") decal, not the
-                // square preview box.
-                const pad = 6;
-                const cropX = Math.max(0, Math.floor((previewSize - maskWidth) / 2 - pad));
-                const cropY = Math.max(0, Math.floor((previewSize - maskHeight) / 2 - pad));
-                const cropW = Math.ceil(maskWidth + pad * 2);
-                const cropH = Math.ceil(maskHeight + pad * 2);
-                const canvas = await h2c(previewRef.current, {
-                  backgroundColor: '#333333',
-                  scale: 3,
-                  useCORS: true,
-                  logging: false,
-                  x: cropX, y: cropY, width: cropW, height: cropH,
+                // Capture full preview then manually crop to the decal mask
+                // rect so the embed's aspect ratio matches the real decal.
+                const scale = 3;
+                const fullCanvas = await h2c(previewRef.current, {
+                  backgroundColor: '#333333', scale, useCORS: true, logging: false,
                 });
-                previewImage = canvas.toDataURL('image/png');
+                const pad = 6;
+                const sx = Math.max(0, Math.floor(((previewSize - maskWidth) / 2 - pad) * scale));
+                const sy = Math.max(0, Math.floor(((previewSize - maskHeight) / 2 - pad) * scale));
+                const sw = Math.min(fullCanvas.width - sx, Math.ceil((maskWidth + pad * 2) * scale));
+                const sh = Math.min(fullCanvas.height - sy, Math.ceil((maskHeight + pad * 2) * scale));
+                if (sw > 0 && sh > 0) {
+                  const cropped = document.createElement('canvas');
+                  cropped.width = sw; cropped.height = sh;
+                  cropped.getContext('2d').drawImage(fullCanvas, sx, sy, sw, sh, 0, 0, sw, sh);
+                  previewImage = cropped.toDataURL('image/png');
+                } else {
+                  previewImage = fullCanvas.toDataURL('image/png');
+                }
               }
               await api.generateQuote({
                 type: 'printed-decal',
