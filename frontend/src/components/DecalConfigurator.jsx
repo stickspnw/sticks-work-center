@@ -19,7 +19,7 @@ const DecalConfigurator = () => {
   const [color, setColor] = useState('white');
   const [hasBackground, setHasBackground] = useState(false);
   const [backgroundColor, setBackgroundColor] = useState('black');
-  const [backgroundHeight, setBackgroundHeight] = useState(3);
+  const [backgroundHeight, setBackgroundHeight] = useState(0.25);
   const [logoFile, setLogoFile] = useState(null);
   const [logoPreview, setLogoPreview] = useState(null);
   const [selectedPixel, setSelectedPixel] = useState(null);
@@ -1353,25 +1353,25 @@ const DecalConfigurator = () => {
                   geometry/PDF code keeps working without changes. */}
               <button
                 type="button"
-                onClick={() => setBackgroundHeight((p) => Math.max(0.0625, (Number(p) || 0) - 0.125))}
+                onClick={() => setBackgroundHeight((p) => Math.max(0.05, Number(((Number(p) || 0) - 0.1).toFixed(2))))}
                 style={btnStyle}
               >-</button>
               <input
                 type="number"
-                value={Number((Number(contentWidthIn || 0) + 2 * (Number(backgroundHeight) || 0)).toFixed(4))}
-                min={Number((Number(contentWidthIn || 0) + 0.125).toFixed(4))}
-                step="0.25"
+                value={Number((Number(contentWidthIn || 0) + 2 * (Number(backgroundHeight) || 0)).toFixed(2))}
+                min={Number((Number(contentWidthIn || 0) + 0.1).toFixed(2))}
+                step="0.2"
                 onChange={(e) => {
                   const total = parseFloat(e.target.value);
                   if (!Number.isFinite(total)) return;
                   const perSide = (total - Number(contentWidthIn || 0)) / 2;
-                  setBackgroundHeight(Math.max(0.0625, Number(perSide.toFixed(4))));
+                  setBackgroundHeight(Math.max(0.05, Number(perSide.toFixed(2))));
                 }}
                 style={{...inputStyle, textAlign: 'center', flex: 1}}
               />
               <button
                 type="button"
-                onClick={() => setBackgroundHeight((p) => Math.min(8, (Number(p) || 0) + 0.125))}
+                onClick={() => setBackgroundHeight((p) => Math.min(8, Number(((Number(p) || 0) + 0.1).toFixed(2))))}
                 style={btnStyle}
               >+</button>
             </div>
