@@ -610,10 +610,12 @@ router.post("/cut-vinyl", async (req, res) => {
       if (isOffsetLayer) {
         // Background layer: same path filled with thick stroke = total
         // background piece extends past text by offsetIn inches on each side.
+        // PDFKit strokes are centered on the path, so we double the line
+        // width to make the halo extend `offsetIn` *outward* (matching the
+        // preview's WebKit text-stroke).
         pdfDoc.save();
         pdfDoc.transform(xScale, 0, 0, 1, txPt, tyPt);
-        // Stroke is uniform because Y scale is 1; X-compensate for accuracy.
-        pdfDoc.lineWidth(offsetIn * PT);
+        pdfDoc.lineWidth(offsetIn * 2 * PT);
         pdfDoc.strokeColor("#000000");
         pdfDoc.fillColor("#000000");
         pdfDoc.lineJoin("round");
@@ -1307,10 +1309,13 @@ router.post("/cut-vinyl-multi", async (req, res) => {
         const svgPath = naturalPath.toPathData();
 
         if (isOffsetLayer) {
-          // Fat-stroke the path to form the halo cut object
+          // Fat-stroke the path to form the halo cut object. Double the
+          // line width so the stroke extends `offsetIn` outward (matching
+          // the preview's WebKit text-stroke); PDFKit strokes are centered
+          // on the path.
           pdfDoc.save();
           pdfDoc.transform(xScale, 0, 0, 1, txPt, tyPt);
-          pdfDoc.lineWidth(offsetIn * PT);
+          pdfDoc.lineWidth(offsetIn * 2 * PT);
           pdfDoc.strokeColor("#000000");
           pdfDoc.fillColor("#000000");
           pdfDoc.lineJoin("round");
