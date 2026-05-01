@@ -1285,53 +1285,41 @@ const DecalConfigurator = () => {
                   transformOrigin: 'center center',
                   userSelect: 'none',
                 };
-                // Render the text via an SVG <text> element. SVG produces
-                // glyph-accurate strokes with sharp miter joins (matching the
-                // cut file exactly) and renders consistently in html2canvas
-                // for the PDF snapshot. We use paintOrder="stroke" so the
-                // stroke (=halo) is drawn UNDER the fill, identical to a
-                // real layered cut decal. The SVG box is sized to the row +
-                // halo padding so the stroke can extend outside the glyph.
-                const svgPad = (hasBackground && strokePx > 0) ? strokePx : 0;
-                const svgW = r.rowWpx + svgPad * 2;
-                const svgH = r.rowHpx + svgPad * 2;
                 return (
-                  <svg
-                    key={r.id}
-                    onMouseDown={(e) => beginRowDrag(e, r.id, { x: r.id === '__primary__' ? primaryOffsetIn.x : Number(r.offsetXIn || 0), y: r.id === '__primary__' ? primaryOffsetIn.y : Number(r.offsetYIn || 0) })}
-                    width={svgW}
-                    height={svgH}
-                    style={{
-                      position: 'absolute',
-                      left: `${rowCenterX}px`,
-                      top: `${rowCenterY}px`,
-                      transform: 'translate(-50%, -50%)',
-                      zIndex: 2,
-                      cursor: isDragTarget ? 'grabbing' : 'grab',
-                      userSelect: 'none',
-                      overflow: 'visible',
-                      filter: dropShadow,
-                    }}
-                  >
-                    <text
-                      x={svgPad}
-                      y={svgPad + r.rowHpx * 0.82 /* approx baseline */}
-                      fontSize={fontSizePx}
-                      fontFamily={r.font}
-                      fontWeight={r.isBold ? 'bold' : 'normal'}
-                      fontStyle={r.isItalic ? 'italic' : 'normal'}
-                      letterSpacing={letterSpacingPx}
-                      fill={r.color}
-                      stroke={(hasBackground && strokePx > 0) ? backgroundColor : 'none'}
-                      strokeWidth={(hasBackground && strokePx > 0) ? strokePx * 2 : 0}
-                      strokeLinejoin="miter"
-                      strokeMiterlimit="2"
-                      paintOrder="stroke"
-                      style={{ whiteSpace: 'pre' }}
+                  <React.Fragment key={r.id}>
+                    {hasBackground && strokePx > 0 && (
+                      // Halo via WebKit text-stroke: produces sharp,
+                      // glyph-tracing miter-joined strokes natively from the
+                      // browser's font rasterizer (matches the cut file's
+                      // miter-stroked path). paint-order ensures the stroke
+                      // sits UNDER the fill.
+                      <div style={{
+                        ...baseTextStyle,
+                        zIndex: 1,
+                        color: backgroundColor,
+                        WebkitTextStrokeWidth: `${strokePx * 2}px`,
+                        WebkitTextStrokeColor: backgroundColor,
+                        paintOrder: 'stroke',
+                        pointerEvents: 'none',
+                        filter: dropShadow,
+                      }}>
+                        {r.text}
+                      </div>
+                    )}
+                    <div
+                      onMouseDown={(e) => beginRowDrag(e, r.id, { x: r.id === '__primary__' ? primaryOffsetIn.x : Number(r.offsetXIn || 0), y: r.id === '__primary__' ? primaryOffsetIn.y : Number(r.offsetYIn || 0) })}
+                      style={{
+                        ...baseTextStyle,
+                        color: r.color,
+                        zIndex: 2,
+                        cursor: isDragTarget ? 'grabbing' : 'grab',
+                        // No halo? Then the text itself is the bottom layer.
+                        filter: (hasBackground && strokePx > 0) ? undefined : dropShadow,
+                      }}
                     >
                       {r.text}
-                    </text>
-                  </svg>
+                    </div>
+                  </React.Fragment>
                 );
               })}
             </>
