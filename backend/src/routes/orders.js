@@ -2,6 +2,7 @@ import express from "express";
 import { z } from "zod";
 import { requireAuth } from "../middleware/auth.js";
 import { nextOrderNumber } from "../lib/orderNumber.js";
+import { resolveInitials } from "../lib/initials.js";
 import PDFDocument from "pdfkit";
 import multer from "multer";
 import path from "path";
@@ -48,13 +49,8 @@ function requireAdmin(req, res, next) {
   next();
 }
 
-function requireInitials(req, res) {
-  const initials = String(req.body?.initials || "").trim().toUpperCase();
-  if (!/^[A-Z]{2,3}$/.test(initials)) {
-    res.status(400).json({ error: "Initials must be 2–3 letters" });
-    return null;
-  }
-  return initials;
+function requireInitials(req /* , res */) {
+  return resolveInitials(req);
 }
 
 const InitialsSchema = z.string().regex(/^[A-Za-z]{2,3}$/);
@@ -89,11 +85,7 @@ router.get("/", requireAuth, async (req, res) => {
 router.get("/export/completed", requireAuth, requireAdmin, async (req, res) => {
   const prisma = req.prisma;
 
-  // initials come from query string on GET
-  const initials = String(req.query.initials || "").trim().toUpperCase();
-  if (!/^[A-Z]{2,3}$/.test(initials)) {
-    return res.status(400).json({ error: "Initials must be 2–3 letters" });
-  }
+  const initials = resolveInitials(req);
 
   // pull finished orders + line items + product names
   const orders = await prisma.order.findMany({
@@ -168,13 +160,14 @@ const InitialsSchema2 = z.string().regex(/^[A-Za-z]{2,3}$/);
 const CreateAttachmentSchema = z.object({
   label: z.string().min(1),
   googleUrl: z.string().min(1),
-  initials: z.string().min(2).max(3),
+  // Initials are optional now; backend derives them from req.user when omitted.
+  initials: z.string().optional(),
   note: z.string().optional().nullable(),
 });
 
 const AddAttachmentVersionSchema = z.object({
   googleUrl: z.string().min(1),
-  initials: z.string().min(2).max(3),
+  initials: z.string().optional(),
   note: z.string().optional().nullable(),
 });
 
@@ -232,10 +225,7 @@ router.post("/:id/attachments", requireAuth, async (req, res) => {
   const parsed = CreateAttachmentSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "Invalid input" });
 
-  const initials = String(parsed.data.initials).trim().toUpperCase();
-  if (!InitialsSchema2.safeParse(initials).success) {
-    return res.status(400).json({ error: "Initials must be 2–3 letters" });
-  }
+  const initials = resolveInitials(req);
 
   const order = await prisma.order.findUnique({
     where: { id: req.params.id },
@@ -285,10 +275,7 @@ router.post("/:id/attachments/:attachmentId/versions", requireAuth, async (req, 
   const parsed = AddAttachmentVersionSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "Invalid input" });
 
-  const initials = String(parsed.data.initials).trim().toUpperCase();
-  if (!InitialsSchema2.safeParse(initials).success) {
-    return res.status(400).json({ error: "Initials must be 2–3 letters" });
-  }
+  const initials = resolveInitials(req);
 
   const order = await prisma.order.findUnique({
     where: { id: req.params.id },
@@ -373,10 +360,7 @@ router.get("/export/completed", requireAuth, async (req, res) => {
     return res.status(403).json({ error: "Admin only" });
   }
 
-  const initials = String(req.query?.initials || "").trim().toUpperCase();
-  if (!/^[A-Z]{2,3}$/.test(initials)) {
-    return res.status(400).json({ error: "Initials must be 2–3 letters" });
-  }
+  const initials = resolveInitials(req);
 
   const orders = await prisma.order.findMany({
     where: { status: "FINISHED" },
@@ -462,11 +446,7 @@ router.patch("/:id/delete", requireAuth, async (req, res) => {
   }
 
   const id = req.params.id;
-  const initials = String(req.body?.initials || "").trim().toUpperCase();
-
-  if (!/^[A-Z]{2,3}$/.test(initials)) {
-    return res.status(400).json({ error: "Initials must be 2–3 letters" });
-  }
+  const initials = resolveInitials(req);
 
   const order = await prisma.order.findUnique({ where: { id } });
   if (!order) return res.status(404).json({ error: "Order not found" });
@@ -648,9 +628,7 @@ router.patch("/:id/delete", requireAuth, async (req, res) => {
 
 // Mark as completed (initials required)
 router.post("/:id/complete", requireAuth, async (req, res) => {
-  const initials = (req.body.initials || "").toString().trim().toUpperCase();
-  const ok = InitialsSchema.safeParse(initials).success;
-  if (!ok) return res.status(400).json({ error: "Initials must be 2–3 letters" });
+  const initials = resolveInitials(req);
 
   const prisma = req.prisma;
 
@@ -712,12 +690,11 @@ router.post("/:id/attachments", requireAuth, async (req, res) => {
 
   const label = (req.body.label || "").toString().trim();
   const googleUrl = (req.body.googleUrl || "").toString().trim();
-  const initials = (req.body.initials || "").toString().trim().toUpperCase();
+  const initials = resolveInitials(req);
   const note = (req.body.note || "").toString().trim() || null;
 
   if (!label) return res.status(400).json({ error: "Label is required" });
   if (!googleUrl) return res.status(400).json({ error: "Google URL is required" });
-  if (!/^[A-Z]{2,3}$/.test(initials)) return res.status(400).json({ error: "Initials must be 2–3 letters" });
 
   const order = await prisma.order.findUnique({
     where: { id: req.params.id },
@@ -756,11 +733,10 @@ router.post("/:id/attachments/:attachmentId/versions", requireAuth, async (req, 
   const prisma = req.prisma;
 
   const googleUrl = (req.body.googleUrl || "").toString().trim();
-  const initials = (req.body.initials || "").toString().trim().toUpperCase();
+  const initials = resolveInitials(req);
   const note = (req.body.note || "").toString().trim() || null;
 
   if (!googleUrl) return res.status(400).json({ error: "Google URL is required" });
-  if (!/^[A-Z]{2,3}$/.test(initials)) return res.status(400).json({ error: "Initials must be 2–3 letters" });
 
   // Verify attachment belongs to this order
   const att = await prisma.attachment.findFirst({
@@ -806,9 +782,7 @@ router.post("/:id/attachments", requireAuth, async (req, res) => {
   const prisma = req.prisma;
   const orderId = req.params.id;
 
-  const initials = (req.body.initials || "").toString().trim().toUpperCase();
-  const okInitials = InitialsSchema.safeParse(initials).success;
-  if (!okInitials) return res.status(400).json({ error: "Initials must be 2–3 letters" });
+  const initials = resolveInitials(req);
 
   const label = (req.body.label || "").toString().trim();
   const googleUrl = (req.body.googleUrl || "").toString().trim();
@@ -868,9 +842,7 @@ router.post("/:id/attachments/:attachmentId/versions", requireAuth, async (req, 
   const orderId = req.params.id;
   const attachmentId = req.params.attachmentId;
 
-  const initials = (req.body.initials || "").toString().trim().toUpperCase();
-  const okInitials = InitialsSchema.safeParse(initials).success;
-  if (!okInitials) return res.status(400).json({ error: "Initials must be 2–3 letters" });
+  const initials = resolveInitials(req);
 
   const googleUrl = (req.body.googleUrl || "").toString().trim();
   const note = (req.body.note || "").toString().trim() || null;
@@ -931,9 +903,7 @@ router.post("/:id/attachments/:attachmentId/archive", requireAuth, async (req, r
   const orderId = req.params.id;
   const attachmentId = req.params.attachmentId;
 
-  const initials = (req.body.initials || "").toString().trim().toUpperCase();
-  const okInitials = InitialsSchema.safeParse(initials).success;
-  if (!okInitials) return res.status(400).json({ error: "Initials must be 2–3 letters" });
+  const initials = resolveInitials(req);
 
   const attachment = await prisma.attachment.findFirst({
     where: { id: attachmentId, orderId },
@@ -1618,10 +1588,7 @@ export function canWrite(user) {
 router.post("/export/completed", requireAuth, requireAdmin, async (req, res) => {
   const prisma = req.prisma;
 
-  const initials = String(req.body?.initials || "").trim().toUpperCase();
-  if (!/^[A-Z]{2,3}$/.test(initials)) {
-    return res.status(400).json({ error: "Initials must be 2–3 letters" });
-  }
+  const initials = resolveInitials(req);
 
   const orders = await prisma.order.findMany({
     where: { status: "FINISHED" },

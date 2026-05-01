@@ -2,6 +2,7 @@
 import express from "express";
 import bcrypt from "bcryptjs";
 import { requireAuth } from "../middleware/auth.js";
+import { resolveInitials } from "../lib/initials.js";
 
 const router = express.Router();
 
@@ -17,15 +18,12 @@ function requireAdmin(req, res, next) {
 }
 
 /**
- * initials guard (2–3 letters)
+ * Initials guard — always succeeds; falls back to the actor's identity when
+ * the client doesn't supply explicit initials (the storefront UI no longer
+ * prompts for them).
  */
-function requireInitials(req, res) {
-  const initials = String(req.body?.initials || "").trim().toUpperCase();
-  if (!/^[A-Z]{2,3}$/.test(initials)) {
-    res.status(400).json({ error: "Initials must be 2–3 letters" });
-    return null;
-  }
-  return initials;
+function requireInitials(req /* , res */) {
+  return resolveInitials(req);
 }
 
 function getActorId(req) {
@@ -290,12 +288,11 @@ router.delete("/:id", requireAuth, requireAdmin, async (req, res) => {
   const prisma = req.prisma;
   const id = String(req.params.id);
 
-  // initials can come from body OR query (DELETE often has no body)
+  // initials can come from body OR query (DELETE often has no body); fall
+  // back to the actor's identity so the UI never has to prompt for them.
   const initialsRaw = (req.body?.initials ?? req.query?.initials ?? "");
-  const initials = String(initialsRaw).trim().toUpperCase();
-  if (!/^[A-Z]{2,3}$/.test(initials)) {
-    return res.status(400).json({ error: "Initials must be 2–3 letters" });
-  }
+  const sent = String(initialsRaw).trim().toUpperCase();
+  const initials = /^[A-Z]{2,3}$/.test(sent) ? sent : resolveInitials(req);
 
   const actorId = getActorId(req);
   if (!actorId) return res.status(401).json({ error: "Invalid auth token" });

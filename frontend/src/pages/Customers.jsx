@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from "react";
 import AppShell from "../components/AppShell.jsx";
 import { api } from "../api.js";
-import InitialsModal from "../components/InitialsModal.jsx"; // reserved for edits later
 
 export default function Customers() {
   const [customers, setCustomers] = useState([]);

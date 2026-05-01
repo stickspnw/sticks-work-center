@@ -56,14 +56,7 @@ export default function CompletedWorks() {
     if (!isAdmin) return;
     if (deletingId) return; // prevent double-click spam
 
-    const initials = prompt("Enter initials (2–3 letters) to confirm delete:");
-    if (!initials) return;
-
-    const init = initials.trim().toUpperCase();
-    if (init.length < 2 || init.length > 3) {
-      alert("Initials must be 2–3 letters.");
-      return;
-    }
+    if (!window.confirm(`Permanently delete order ${o.orderNumber}? This cannot be undone.`)) return;
 
     // Optimistic UI remove (so it disappears instantly)
     const prev = orders;
@@ -71,7 +64,7 @@ export default function CompletedWorks() {
     setOrders((cur) => cur.filter((x) => x.id !== o.id));
 
     try {
-      await api.deleteOrder(o.id, init);
+      await api.deleteOrder(o.id, "");
 
       // Re-sync from server (in case anything else changed)
       await load();

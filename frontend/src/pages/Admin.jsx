@@ -443,12 +443,9 @@ export default function Admin() {
   // -----------------------
   async function saveCompanyName() {
     if (!isAdmin) return;
-    const initials = prompt("Enter initials (2–3 letters) to confirm:");
-    if (!initials) return;
-
     setBrandingErr("");
     try {
-      await api.brandingSetCompanyName(companyNameDraft.trim(), initials.trim().toUpperCase());
+      await api.brandingSetCompanyName(companyNameDraft.trim(), "");
       await refreshBranding();
       await refreshAudit(auditTake);
       alert("Saved.");
@@ -464,12 +461,9 @@ export default function Admin() {
       return;
     }
 
-    const initials = prompt("Enter initials (2–3 letters) to confirm logo upload:");
-    if (!initials) return;
-
     setBrandingErr("");
     try {
-      await api.brandingUploadLogo(logoFile, initials.trim().toUpperCase());
+      await api.brandingUploadLogo(logoFile, "");
       setLogoFile(null);
       await refreshBranding();
       await refreshAudit(auditTake);
@@ -550,12 +544,8 @@ export default function Admin() {
  async function downloadCompletedCsv() {
   if (!isAdmin) return;
 
-  // Ask for initials
-  const initials = prompt("Enter initials (2-3 letters) to export completed orders:");
-  if (!initials) return;
-
   try {
-    await api.downloadCompletedOrdersCsv(initials.trim().toUpperCase());
+    await api.downloadCompletedOrdersCsv("");
   } catch (e) {
     alert(e.message || "Failed to download export");
   }
@@ -695,11 +685,8 @@ export default function Admin() {
                               const nextRole = e.target.value;
                               if (nextRole === u.role) return;
 
-                              const initials = prompt("Enter initials (2–3 letters) to confirm role change:");
-                              if (!initials) return;
-
                               try {
-                                await api.setUserRole(u.id, nextRole, initials.trim().toUpperCase());
+                                await api.setUserRole(u.id, nextRole, "");
                                 await refreshUsers();
                                 await refreshAudit(auditTake);
                               } catch (err) {
@@ -727,8 +714,6 @@ export default function Admin() {
                             onClick={async () => {
                               const pw = prompt("New password (min 4 chars):");
                               if (!pw) return;
-                              const initials = prompt("Enter initials (2–3 letters) to confirm:");
-                              if (!initials) return;
 
                               try {
                                 await api.resetUserPassword(u.id, pw.trim());
@@ -748,12 +733,9 @@ export default function Admin() {
                             className={`btn ${u.status === "ACTIVE" ? "danger" : "primary"}`}
                             type="button"
                             onClick={async () => {
-                              const initials = prompt("Enter initials (2–3 letters) to confirm:");
-                              if (!initials) return;
-
                               try {
                                 const nextStatus = u.status === "ACTIVE" ? "DISABLED" : "ACTIVE";
-                                await api.setUserStatus(u.id, nextStatus, initials.trim().toUpperCase());
+                                await api.setUserStatus(u.id, nextStatus, "");
                                 await refreshUsers();
                                 await refreshAudit(auditTake);
                               } catch (e) {
@@ -771,14 +753,11 @@ export default function Admin() {
                             type="button"
                             onClick={async () => {
                               if (u.id === user?.id) return;
-                              const initials = prompt("Enter initials (2–3 letters) to confirm DELETE:");
-                              if (!initials) return;
-
                               const ok = window.confirm(`Delete user '${u.username}'? This will disable the account.`);
                               if (!ok) return;
 
                               try {
-                                await api.deleteUser(u.id, initials.trim().toUpperCase());
+                                await api.deleteUser(u.id, "");
                                 await refreshUsers();
                                 await refreshAudit(auditTake);
                               } catch (e) {
@@ -1044,14 +1023,11 @@ export default function Admin() {
                         className="btn danger"
                         type="button"
                         onClick={async () => {
-                          const initials = prompt("Enter initials (2–3 letters) to archive this customer:");
-                          if (!initials) return;
-
                           const ok = window.confirm(`Archive customer '${c.name}'?`);
                           if (!ok) return;
 
                           try {
-                            await api.archiveCustomer(c.id, initials.trim().toUpperCase());
+                            await api.archiveCustomer(c.id, "");
                             await refreshCustomers();
                             await refreshAudit(auditTake);
                           } catch (e) {

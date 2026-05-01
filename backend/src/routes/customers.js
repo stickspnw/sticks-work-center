@@ -1,6 +1,7 @@
 import express from "express";
 import { z } from "zod";
 import { requireAuth } from "../middleware/auth.js";
+import { resolveInitials } from "../lib/initials.js";
 
 const router = express.Router();
 
@@ -24,13 +25,8 @@ function requireAdmin(req, res, next) {
   next();
 }
 
-function requireInitials(req, res) {
-  const initials = String(req.body?.initials || "").trim().toUpperCase();
-  if (!/^[A-Z]{2,3}$/.test(initials)) {
-    res.status(400).json({ error: "Initials must be 2–3 letters" });
-    return null;
-  }
-  return initials;
+function requireInitials(req /* , res */) {
+  return resolveInitials(req);
 }
 
 function getActorId(req) {

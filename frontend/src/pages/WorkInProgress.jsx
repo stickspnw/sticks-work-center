@@ -5,7 +5,6 @@ import React, { useEffect, useState } from "react";
 
 import AppShell from "../components/AppShell.jsx";
 import { api } from "../api.js";
-import InitialsModal from "../components/InitialsModal.jsx";
 async function downloadWorkOrder(orderId, orderNumber) {
   const token = localStorage.getItem("swc_token");
 
@@ -37,8 +36,6 @@ export default function WorkInProgress() {
 
   const [orders, setOrders] = useState([]);
   const [err, setErr] = useState("");
-  const [completeId, setCompleteId] = useState(null);
-  const [deleteId, setDeleteId] = useState(null);
   const [attachmentsOrderId, setAttachmentsOrderId] = useState("");
 
 
@@ -54,25 +51,21 @@ export default function WorkInProgress() {
 
   useEffect(()=>{ load(); }, []);
 
-  async function complete(initials) {
+  async function complete(orderId) {
     try {
-      await api.completeOrder(completeId, initials);
-      setCompleteId(null);
+      await api.completeOrder(orderId, "");
       await load();
     } catch (e) {
       setErr(e.message);
-      setCompleteId(null);
     }
   }
 
-  async function doDelete(initials) {
+  async function doDelete(orderId) {
     try {
-      await api.deleteOrder(deleteId, initials);
-      setDeleteId(null);
+      await api.deleteOrder(orderId, "");
       await load();
     } catch (e) {
       setErr(e.message);
-      setDeleteId(null);
     }
   }
 
@@ -151,7 +144,11 @@ export default function WorkInProgress() {
       <button
         className="btn primary"
         type="button"
-        onClick={() => setCompleteId(o.id)}
+        onClick={() => {
+          if (window.confirm(`Mark order ${o.orderNumber} as completed?`)) {
+            complete(o.id);
+          }
+        }}
       >
         Mark as Completed
       </button>
@@ -161,7 +158,7 @@ export default function WorkInProgress() {
         type="button"
         onClick={() => {
           if (window.confirm(`Delete order ${o.orderNumber}? This cannot be undone.`)) {
-            setDeleteId(o.id);
+            doDelete(o.id);
           }
         }}
       >
@@ -183,19 +180,6 @@ export default function WorkInProgress() {
         </tbody>
       </table>
 
-      <InitialsModal
-        open={!!completeId}
-        title="Enter Initials to Complete"
-        onCancel={()=>setCompleteId(null)}
-        onConfirm={complete}
-      />
-
-      <InitialsModal
-        open={!!deleteId}
-        title="Enter Initials to Delete Order"
-        onCancel={()=>setDeleteId(null)}
-        onConfirm={doDelete}
-      />
       {attachmentsOrderId && (
   <AttachmentsPanel
     orderId={attachmentsOrderId}
