@@ -727,12 +727,12 @@ router.post("/quote", async (req, res) => {
       decalNumber,
       // Cut vinyl fields
       text, height, font, isBold, isItalic, charSpacing,
-      colorName, hasOffset, offsetColorName, offsetSize,
+      colorName, colorHex, hasOffset, offsetColorName, offsetColorHex, offsetSize,
       estimatedWidth, area, unitPrice, totalPrice, qty,
       transferTapeCost, offsetCost,
       // Printed decal fields
       shape, backgroundColor, width,
-      // Preview image
+      // Preview image (used for printed decals; cut vinyl is rendered server-side)
       previewImage,
     } = req.body;
 
@@ -833,7 +833,13 @@ router.post("/quote", async (req, res) => {
     const envWIn = innerWIn + haloIn * 2;
     const envHIn = innerHIn + haloIn * 2;
 
-    if (previewBuffer) {
+    // We always render the preview block as long as we have valid decal
+    // dimensions. For cut vinyl, render server-side (matches cut file
+    // exactly). For printed decals, fall back to the html2canvas snapshot.
+    const havePreview = (type === "cut-vinyl" && text)
+      || (type === "printed-decal" && previewBuffer);
+
+    if (havePreview) {
       try {
         // Envelope reserved for the preview image (NOT including measurement
         // bar gutters). About half the usable page width — substantial.
@@ -855,10 +861,29 @@ router.post("/quote", async (req, res) => {
         const imgX = blockX + leftGutter;
         const imgY = y + topGutter;
 
-        // The cropped snapshot is captured tightly to the bg envelope and
-        // with a transparent backdrop, so it floats cleanly on the white
-        // page with no rectangle behind it.
-        pdfDoc.image(previewBuffer, imgX, imgY, { fit: [dispEnvW, dispEnvH] });
+        if (type === "cut-vinyl") {
+          // Render the decal preview server-side using the same opentype
+          // glyph path + miter-stroke code the cut file uses. Guarantees
+          // the PDF preview is *exactly* the cut shape, just colored.
+          drawCutVinylDecalPreview(pdfDoc, {
+            x: imgX,
+            y: imgY,
+            ptPerIn: previewScale,
+            contentWIn: innerWIn,
+            contentHIn: innerHIn,
+            offsetIn: haloIn,
+            text,
+            font,
+            isBold,
+            isItalic,
+            charSpacingPercent: parseFloat(charSpacing) || 0,
+            textColor: colorHex || "#000000",
+            bgColor: offsetColorHex || "#000000",
+          });
+        } else if (previewBuffer) {
+          // Printed decals still use the cropped html2canvas snapshot.
+          pdfDoc.image(previewBuffer, imgX, imgY, { fit: [dispEnvW, dispEnvH] });
+        }
 
         // Coordinates of the INNER content within the placed image. The
         // halo padding sits between the envelope edge and the inner content.
@@ -958,6 +983,72 @@ router.post("/quote", async (req, res) => {
     res.status(500).json({ error: "Failed to generate quote: " + err.message });
   }
 });
+
+// Helper: render a colored cut-vinyl decal preview directly in PDFKit so the
+// quote PDF and the cut file share the *exact same* glyph paths, miter
+// limits, and bg halo math. Drawing this server-side avoids any html2canvas
+// rendering quirks (the live configurator preview can keep using WebKit
+// text-stroke; only the embedded PDF preview uses this).
+//
+// {
+//   x, y           top-left of the bg envelope in PDF points
+//   ptPerIn        PDF points per inch for sizing
+//   contentWIn     text width in inches (no halo)
+//   contentHIn     text height in inches (no halo)
+//   offsetIn       halo width per side in inches (0 if no bg)
+//   text, font, isBold, isItalic, charSpacingPercent
+//   textColor      hex string, e.g. "#000000"
+//   bgColor        hex string, used when offsetIn > 0
+// }
+function drawCutVinylDecalPreview(pdfDoc, opts) {
+  const {
+    x, y, ptPerIn,
+    contentWIn, contentHIn, offsetIn = 0,
+    text, font, isBold, isItalic, charSpacingPercent = 0,
+    textColor = "#000000",
+    bgColor = "#000000",
+  } = opts;
+  if (!text || !contentWIn || !contentHIn) return;
+
+  let otFont;
+  try { otFont = loadFont(font || "Arial", !!isBold, !!isItalic); } catch { return; }
+
+  const fontSize = contentHIn * ptPerIn;
+  const charSpacingPt = (Number(charSpacingPercent) / 100) * fontSize;
+  const naturalPath = otFont.getPath(text, 0, 0, fontSize, { letterSpacing: charSpacingPt });
+  const naturalBB = naturalPath.getBoundingBox();
+  const naturalAdvancePt = naturalBB.x2 - naturalBB.x1;
+  const targetWidthPt = contentWIn * ptPerIn;
+  const xScale = naturalAdvancePt > 0 ? targetWidthPt / naturalAdvancePt : 1;
+
+  // Place the text inside the bg envelope. Envelope top-left = (x, y); text
+  // top-left = envelope top-left + offsetIn padding; baseline at text bottom.
+  const txPt = x + offsetIn * ptPerIn - naturalBB.x1 * xScale;
+  const tyPt = y + (offsetIn + contentHIn) * ptPerIn;
+  const svgPath = naturalPath.toPathData();
+
+  // Background halo (drawn first so the text fill sits on top)
+  if (offsetIn > 0) {
+    pdfDoc.save();
+    pdfDoc.transform(xScale, 0, 0, 1, txPt, tyPt);
+    pdfDoc.lineWidth(offsetIn * 2 * ptPerIn);
+    pdfDoc.strokeColor(bgColor);
+    pdfDoc.fillColor(bgColor);
+    pdfDoc.lineJoin("miter");
+    pdfDoc.miterLimit(2);
+    drawSvgPath(pdfDoc, svgPath);
+    pdfDoc.fillAndStroke();
+    pdfDoc.restore();
+  }
+
+  // Foreground text fill
+  pdfDoc.save();
+  pdfDoc.transform(xScale, 0, 0, 1, txPt, tyPt);
+  pdfDoc.fillColor(textColor);
+  drawSvgPath(pdfDoc, svgPath);
+  pdfDoc.fill();
+  pdfDoc.restore();
+}
 
 // Helper: draw SVG path data onto PDFKit document
 function drawSvgPath(doc, svgPath) {

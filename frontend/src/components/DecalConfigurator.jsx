@@ -1285,71 +1285,34 @@ const DecalConfigurator = () => {
                   transformOrigin: 'center center',
                   userSelect: 'none',
                 };
-                // Bg envelope = exact same rectangle the BG cut file uses.
-                // Clip halo + text to it so WebKit text-stroke spikes that
-                // exceed the envelope (sharp glyph corners with no native
-                // miterLimit control) get truncated, forcing preview/PDF
-                // to match the cut file's outer rectangle.
-                const envHaloPx = (hasBackground && strokePx > 0) ? strokePx : 0;
-                const envBoxW = r.rowWpx + envHaloPx * 2;
-                const envBoxH = r.rowHpx + envHaloPx * 2;
                 return (
-                  <div
-                    key={r.id}
-                    onMouseDown={(e) => beginRowDrag(e, r.id, { x: r.id === '__primary__' ? primaryOffsetIn.x : Number(r.offsetXIn || 0), y: r.id === '__primary__' ? primaryOffsetIn.y : Number(r.offsetYIn || 0) })}
-                    style={{
-                      position: 'absolute',
-                      left: `${rowCenterX}px`,
-                      top: `${rowCenterY}px`,
-                      width: `${envBoxW}px`,
-                      height: `${envBoxH}px`,
-                      transform: 'translate(-50%, -50%)',
-                      overflow: 'hidden',
-                      zIndex: 2,
-                      cursor: isDragTarget ? 'grabbing' : 'grab',
-                      userSelect: 'none',
-                      filter: dropShadow,
-                    }}
-                  >
+                  <React.Fragment key={r.id}>
                     {hasBackground && strokePx > 0 && (
-                      // Halo via WebKit text-stroke. paint-order keeps the
-                      // stroke under the fill.
                       <div style={{
-                        position: 'absolute',
-                        left: '50%',
-                        top: '50%',
-                        transform: 'translate(-50%, -50%)',
-                        fontSize: `${fontSizePx}px`,
-                        fontWeight: r.isBold ? 'bold' : 'normal',
-                        fontStyle: r.isItalic ? 'italic' : 'normal',
-                        fontFamily: r.font,
-                        letterSpacing: `${letterSpacingPx}px`,
-                        whiteSpace: 'nowrap',
+                        ...baseTextStyle,
+                        zIndex: 1,
                         color: backgroundColor,
                         WebkitTextStrokeWidth: `${strokePx * 2}px`,
                         WebkitTextStrokeColor: backgroundColor,
-                        paintOrder: 'stroke',
                         pointerEvents: 'none',
+                        filter: dropShadow,
                       }}>
                         {r.text}
                       </div>
                     )}
-                    <div style={{
-                      position: 'absolute',
-                      left: '50%',
-                      top: '50%',
-                      transform: 'translate(-50%, -50%)',
-                      fontSize: `${fontSizePx}px`,
-                      fontWeight: r.isBold ? 'bold' : 'normal',
-                      fontStyle: r.isItalic ? 'italic' : 'normal',
-                      fontFamily: r.font,
-                      letterSpacing: `${letterSpacingPx}px`,
-                      whiteSpace: 'nowrap',
-                      color: r.color,
-                    }}>
+                    <div
+                      onMouseDown={(e) => beginRowDrag(e, r.id, { x: r.id === '__primary__' ? primaryOffsetIn.x : Number(r.offsetXIn || 0), y: r.id === '__primary__' ? primaryOffsetIn.y : Number(r.offsetYIn || 0) })}
+                      style={{
+                        ...baseTextStyle,
+                        color: r.color,
+                        zIndex: 2,
+                        cursor: isDragTarget ? 'grabbing' : 'grab',
+                        filter: (hasBackground && strokePx > 0) ? undefined : dropShadow,
+                      }}
+                    >
                       {r.text}
                     </div>
-                  </div>
+                  </React.Fragment>
                 );
               })}
             </>
@@ -1758,7 +1721,11 @@ const DecalConfigurator = () => {
               await api.generateQuote({
                 type: 'cut-vinyl',
                 text, height, font, isBold, isItalic, charSpacing,
-                colorName, hasOffset: hasBackground, offsetColorName: backgroundColorName, offsetSize: backgroundHeight,
+                colorName, colorHex: color,
+                hasOffset: hasBackground,
+                offsetColorName: backgroundColorName,
+                offsetColorHex: backgroundColor,
+                offsetSize: backgroundHeight,
                 estimatedWidth: textWidth, area, unitPrice, totalPrice, qty,
                 transferTapeCost, offsetCost: backgroundCost,
                 previewImage,
