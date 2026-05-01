@@ -344,6 +344,10 @@ const DecalConfigurator = () => {
       layer: 'text',
       colorName,
       vinylShortCode: shortCodeFor(color),
+      // Pass bg info so the text cut file gets matching registration marks
+      // when there's a background layer.
+      hasBackground,
+      offsetSize: hasBackground ? (Number(backgroundHeight) || 0) : 0,
       layerIndex: 1,
       layerCount,
     });
@@ -715,6 +719,8 @@ const DecalConfigurator = () => {
         layer: 'text',
         colorName,
         vinylShortCode: shortCodeFor(color),
+        hasBackground,
+        offsetSize: hasBackground ? (Number(backgroundHeight) || 0) : 0,
         orderId,
         orderNumber,
         layerIndex: 1,
@@ -1651,6 +1657,8 @@ const DecalConfigurator = () => {
                 layer: 'text',
                 colorName,
                 vinylShortCode: shortCodeFor(color),
+                hasBackground,
+                offsetSize: hasBackground ? (Number(backgroundHeight) || 0) : 0,
               });
             } catch (e) { alert('Error generating text file: ' + e.message); }
           }}

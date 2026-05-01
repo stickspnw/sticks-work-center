@@ -418,6 +418,8 @@ router.post("/cut-vinyl", async (req, res) => {
     const {
       text, height, font, isBold, isItalic, charSpacing,
       hasOffset, offsetSize, layer, colorName, qty,
+      hasBackground, // true when the decal has a bg (needed so text-layer cut
+                      // files also get reg marks that align with the BG file)
       logoMode, selectedColor, logoWidth, orderId,
       textWidthIn: requestedTextWidthIn,
       bgRect, bgWidthIn, bgHeightIn,
@@ -468,6 +470,10 @@ router.post("/cut-vinyl", async (req, res) => {
     const hIn = parseFloat(height);
     const qtyNum = parseInt(qty) || 1;
     const offsetIn = hasOffset ? parseFloat(offsetSize || 0) : 0;
+    // bg halo width regardless of which layer we're rendering — used for
+    // registration marks so text + bg cut files align.
+    const bgHaloIn = Math.max(0, parseFloat(offsetSize || 0));
+    const hasBg = !!(hasOffset || hasBackground) && bgHaloIn > 0;
     const charSpacingPercent = parseFloat(charSpacing) || 0;
     // Convert percent to PDF points: (percent/100) * fontSize
     const charSpacingPt = (charSpacingPercent / 100) * (hIn * PT);
@@ -576,17 +582,17 @@ router.post("/cut-vinyl", async (req, res) => {
       pdfDoc.stroke();
       pdfDoc.restore();
 
-      // Registration squares — only on the background (offset) layer so the
-      // cutter can align text and BG. Plain text cuts don't need them.
-      if (isOffsetLayer) {
-        // Position reg marks around the BG envelope (text + offset on each
-        // side), with a 0.5" buffer so they never touch the halo.
+      // Registration squares — emitted on BOTH bg and text layers whenever
+      // the decal has a background, so the cutter can align the two cut
+      // files by overlaying their marks. Plain (no-bg) decals skip them.
+      if (hasBg) {
         const regSize = 0.25;
         const regBuf = 0.5;
-        const envW = textWidthIn + offsetIn * 2;
-        const envH = hIn + offsetIn * 2;
-        const envX = graphicX - offsetIn;
-        const envY = graphicY - offsetIn;
+        const envW = textWidthIn + bgHaloIn * 2;
+        const envH = hIn + bgHaloIn * 2;
+        // Center envelope around the text content (same center as graphic).
+        const envX = graphicX + graphicW / 2 - envW / 2;
+        const envY = graphicY + graphicH / 2 - envH / 2;
         const regPositions = [
           { x: envX - regSize - regBuf, y: envY + envH / 2 - regSize / 2 }, // left
           { x: envX + envW / 2 - regSize / 2, y: envY - regSize - regBuf }, // top
@@ -1254,6 +1260,7 @@ router.post("/cut-vinyl-multi", async (req, res) => {
       qty: qtyRaw = 1,
       layer = "text",
       offsetSize = 0,
+      hasBackground = false,
       colorName = "Vinyl",
       vinylShortCode,
       orderId,
@@ -1269,6 +1276,11 @@ router.post("/cut-vinyl-multi", async (req, res) => {
     const qtyNum = Math.max(1, parseInt(qtyRaw) || 1);
     const isOffsetLayer = layer === "offset";
     const offsetIn = isOffsetLayer ? Math.max(0, parseFloat(offsetSize) || 0) : 0;
+    // bgHaloIn = full bg halo width, regardless of which layer we’re
+    // rendering. Used for registration-mark positioning so the text cut
+    // file and the BG cut file have marks at the same relative spot.
+    const bgHaloIn = Math.max(0, parseFloat(offsetSize) || 0);
+    const emitRegMarks = (isOffsetLayer || !!hasBackground) && bgHaloIn > 0;
     const decalNum = orderId ? parseInt(orderId) : nextDecalNumber();
 
     // Compute composite bounding box from rows if not supplied. The bbox is
@@ -1365,15 +1377,24 @@ router.post("/cut-vinyl-multi", async (req, res) => {
       pdfDoc.stroke();
       pdfDoc.restore();
 
-      // Registration squares — only on the background (offset) layer so
-      // cutters can align the BG cut against the text/logo cut. Single-
-      // layer text-only cut files don't get them.
-      if (isOffsetLayer) {
+      // Registration squares — emitted on BOTH the bg layer AND the text
+      // layer whenever the decal has a background, so the cutter can align
+      // the two cut files by overlaying their marks. Single-layer decals
+      // (no bg) don't need them.
+      if (emitRegMarks) {
+        // Position reg marks around the BG envelope even on the text
+        // layer — matches where the marks sit on the bg file.
         const regSize = 0.25;
+        const regBuf = 0.5;
+        const regEnvW = bboxW + bgHaloIn * 2;
+        const regEnvH = bboxH + bgHaloIn * 2;
+        // Center envelope around the text content (same center as graphic).
+        const regEnvX = graphicX + graphicW / 2 - regEnvW / 2;
+        const regEnvY = graphicY + graphicH / 2 - regEnvH / 2;
         const regPositions = [
-          { x: graphicX - regSize - 0.1, y: graphicY + graphicH / 2 - regSize / 2 },
-          { x: graphicX + graphicW / 2 - regSize / 2, y: graphicY - regSize - 0.1 },
-          { x: graphicX + graphicW + 0.1, y: graphicY + graphicH / 2 - regSize / 2 },
+          { x: regEnvX - regSize - regBuf, y: regEnvY + regEnvH / 2 - regSize / 2 },
+          { x: regEnvX + regEnvW / 2 - regSize / 2, y: regEnvY - regSize - regBuf },
+          { x: regEnvX + regEnvW + regBuf, y: regEnvY + regEnvH / 2 - regSize / 2 },
         ];
         pdfDoc.save();
         pdfDoc.lineWidth(STROKE_WIDTH);
